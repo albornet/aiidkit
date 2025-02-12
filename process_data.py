@@ -12,7 +12,7 @@ def main() -> None:
     process_data(data_dict=raw_data_dict)
 
 
-def process_data(data_dict: dict[str, pd.DataFrame]) -> ...:
+def process_data(data_dict: dict[str, pd.DataFrame]) -> None:
     """ ...
     """
     pat_ids_with_consent = get_pat_ids_with_consent(data_dict)
