@@ -1,10 +1,11 @@
 import os
 import json
+import pandas as pd
 from typing import Union
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 
-class ProcessDataConfig:
+class DataConfig:
     """ ...
     """
     DATA_DIR = "data"
@@ -12,13 +13,26 @@ class ProcessDataConfig:
     RAW_DATA_PATH = os.path.join(DATA_DIR, RAW_DATA_NAME)
     PROCESSED_DATA_SUBDIR = os.path.join(DATA_DIR, "processed")
     STAT_ROW_NAMES = ["MIN", "P1", "P25", "MEDIAN", "P75", "P99", "MAX", "MEAN", "MODE"]
+    FEAT_INFO_DICTS = {
+        # Patient baseline information sheet
+        "#4_PAT_BL": {
+            "centreid": str,
+            "bmi": float,
+            # "birthday": pd.Timestamp,
+        },
+        
+        # Patient socio-demographic questionnaire (?)
+        "#5_PAT_PSQ": {
+            "ethnicity": str,
+        }
+    }
 
 
 @dataclass
 class EAVRecord:
     """ Data class for any static value
     """
-    entity_id: int  # broad range entity
+    entity: int  # broad range entity -> keep this?
     attribute: str  # attribute name (medication, infection status, etc.)
     value: Union[int, float, str]  # attribute value
     
@@ -35,15 +49,15 @@ class PatientRecord:
     """ Data class holding patient ID, static and dynamic patient data
     """
     patient_id: int
-    static_list: list[EAVRecord]
-    dynamic_list: list[EAVRecordTimed]
+    feature_list: list[EAVRecord] = field(default_factory=list)
+    event_list: list[EAVRecordTimed] = field(default_factory=list)
     
     def __post_init__(self):
         """ Always save patient instance data to a json file
         """
+        os.makedirs(DataConfig.PROCESSED_DATA_SUBDIR, exist_ok=True)
         json_name = f"patient_{self.patient_id}.json"
-        os.makedirs(ProcessDataConfig.PROCESSED_DATA_SUBDIR, exist_ok=True)
-        self.json_path = os.path.join(ProcessDataConfig.PROCESSED_DATA_SUBDIR, json_name)
+        self.json_path = os.path.join(DataConfig.PROCESSED_DATA_SUBDIR, json_name)
         self.save()
         
     def save(self) -> None:
@@ -61,29 +75,41 @@ class PatientRecord:
         
         return cls(
             patient_id=data["patient_id"],
-            static_list=[EAVRecord(**record) for record in data["static_list"]],
-            dynamic_list=[EAVRecordTimed(**record) for record in data["dynamic_list"]],
+            feature_list=[EAVRecord(**record) for record in data["feature_list"]],
+            event_list=[EAVRecordTimed(**record) for record in data["event_list"]],
         )
+    
+    def add_element(
+        self,
+        entity: int,
+        attribute: str,
+        value: Union[int, float, str],
+        timestamp: float|None=None,
+    ) -> None:
+        """ Add a static feature or a timed event to the patient data
+        """
+        if timestamp is None:
+            self.feature_list.append(EAVRecord(entity, attribute, value))
+        else:
+            self.event_list.append(EAVRecordTimed(entity, attribute, value, timestamp))
+        self.save()
 
 
 if __name__ == "__main__":
     """ Test data classes
     """
     # Create a test patient data instance and save its data
-    saved_patient = PatientRecord(
-        patient_id=123,
-        static_list=[
-            EAVRecord(entity_id=1, attribute="age", value=42),
-            EAVRecord(entity_id=1, attribute="name", value="Alice"),
-        ],
-        dynamic_list=[
-            EAVRecordTimed(entity_id=2, attribute="bp-sys", value=120, timestamp=10.1),
-            EAVRecordTimed(entity_id=2, attribute="bp-dia", value=125, timestamp=-5.5),
-        ],
-    )
+    saved_patient = PatientRecord(patient_id=123)
+    saved_patient.add_element(entity=1, attribute="age", value=42)
+    saved_patient.add_element(entity=1, attribute="name", value="Alice")
+    saved_patient.add_element(entity=2, attribute="bp-sys", value=120, timestamp=10.1)
+    saved_patient.add_element(entity=2, attribute="bp-dia", value=125, timestamp=-5.5)
     
     # Load saved patient data into a patient record instance
-    loaded_patient = PatientRecord.load("data/processed/patient_123.json")
+    load_path = os.path.join(DataConfig.PROCESSED_DATA_SUBDIR, "patient_123.json")
+    loaded_patient = PatientRecord.load(load_path)
+    
+    # Check if all went as expected
     if saved_patient == loaded_patient and saved_patient is not loaded_patient:
         print("Test patient successfully saved and loaded!")
     import ipdb; ipdb.set_trace()
