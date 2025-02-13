@@ -3,6 +3,29 @@ import pandas as pd
 from process_data_utils import DataConfig as cfg
 
 
+############
+# COMMENTS #
+############
+
+# BL = BASELINE
+# FUP = FOLLOW-UP
+# ID = MAY SOMETIMES MEAN INFECTION DISEASE (BUT USUALLY IDENTIFIER...)
+# PAT = PATIENT
+# - #1_CONSENT sheet done (only consent info from this one)
+# - #2_KIDNEY_BL not done
+# - #3_KIDNEY_FUP not done
+# - #4_PAT_BL not done
+# - #5_PAT_PSQ done (only ethnicity info)
+# - #6_PAT_ID not done (may be from where target labels can be extracted)
+# - #7_PAT_DRUG not done (pay attention: some drugs could leak label information)
+# - #8_PAT_STOP not done (may be from where censoring info can be extracted)
+# - #9_ORGAN_BASE not done (contains a lot of static info and also about censoring)
+
+############
+# COMMENTS #
+############
+
+
 def main() -> None:
     """ ...
     """
