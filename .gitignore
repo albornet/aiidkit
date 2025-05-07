@@ -176,4 +176,5 @@ cython_debug/
 # Custom
 data/*.xlsx
 data/*.csv
+data/*.pkl
 data/processed/*
