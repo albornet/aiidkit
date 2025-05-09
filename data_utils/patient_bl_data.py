@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 from enum import Enum
-
-# what is wrong with this import ?
 from .data_utils import *
 
 
@@ -83,7 +81,7 @@ class InfectionDisease(LongitudinalData):
         super().__init__(value, date)
 
 
-def get_infectious_diseases(patient_ID:int, data:pd.DataFrame) -> List[InfectionDisease]:
+def get_infectious_diseases(patient_ID:int, data:pd.DataFrame) -> list[InfectionDisease]:
     infectious_diseases = get_longitudinal_data(patient_ID=patient_ID,data_name="id", 
                           data=data, subclass=InfectionDisease)
     return infectious_diseases 
