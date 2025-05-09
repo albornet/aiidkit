@@ -12,17 +12,17 @@ uv pip install numpy pandas tqdm ipdb  # install dependencies
 ```
 
 ## Usage
-To pre-process patient data and create patient data records in data/results, run the following:
+To pre-process patient data and create patient data records in `./data/results`, run the following:
 ```
 python main.py
 ```
 
-You can use debug mode to pre-process the dataset for a few patients, using a single core:
+Use debug mode to pre-process the dataset for a few patients, using a single core:
 ```
 python main.py -d
 ```
 
-You use exploration mode to check the different data sheets in the raw data file:
+Use exploration mode to check the different data sheets in the raw data file:
 ```
 python main.py -e
 ```
