@@ -178,10 +178,10 @@ def plot_survival_analysis_results(
 ):
     # Initialize the survival curve plot
     _, ax = plt.subplots(figsize=(6, 5))
-    ax.set_title("Time to first infection\n(only for those occuring after transplantation)")
+    ax.set_title("Time to first infection (Kaplan-Meier estimate)\n(only for those occuring after transplantation)")
     ax.set_ylim([0.0, 1.0])
 
-    # Plot several years of analysis in different colors
+    # Plot survival analysis plots, using infection data with different stratifications
     for constraint_name, kmf in kmf_dict.items():
         kmf.plot_survival_function(ax=ax, label=constraint_name)
 
@@ -199,10 +199,10 @@ def plot_survival_analysis_results(
 
     # Initialize the cumulative density plot
     _, ax = plt.subplots(figsize=(6, 5))
-    ax.set_title("Cumulative incidence of first infection\n(only for those occuring after transplantation)")
+    ax.set_title("Cumulative incidence of first infection (Kaplan-Meier estimate)\n(only for those occuring after transplantation)")
     ax.set_ylim([0.0, 1.0])
 
-    # Plot several years of analysis in different colors
+    # Plot cumulative density plots, using infection data with different stratifications
     for constraint_name, kmf in kmf_dict.items():
         kmf.plot_cumulative_density(ax=ax, label=constraint_name)
 
@@ -222,9 +222,9 @@ def plot_survival_analysis_results(
     _, ax = plt.subplots(figsize=(6, 5))
     ax.set_xlabel("Time after transplantation [days]")
     ax.set_ylabel("Probability mass of first infection (smoothed)")
-    ax.set_title("Probability mass of first infection\n(only for those occuring after transplantation)")
+    ax.set_title("Probability mass of first infection (Kaplan-Meier estimate)\n(only for those occuring after transplantation)")
 
-    # Plot several years of analysis in different colors
+    # Plot probability distribution ("mass") plots, using infection data with different stratifications
     for constraint_name, kmf in kmf_dict.items():
         if constraint_name == "all patients"\
         and kmf_dict.keys() != {"all patients"}:
@@ -379,7 +379,7 @@ def generate_infection_type_plots(
 
         # Create the bar plot with label counts
         _, ax = plt.subplots(figsize=(6, 5))
-        colors = color=["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
+        colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
         bars = ax.bar(types, counts, color=colors)
         for bar in bars:
             x_val = bar.get_x() + bar.get_width() / 2
