@@ -174,7 +174,8 @@ cython_debug/
 .pypirc
 
 # Custom
-data/*.xlsx
-data/*.csv
-data/*.pkl
-data/processed/*
+data/data_files/raw/*
+!data/data_files/raw/README.md
+data/data_files/processed/*
+!data/data_files/processed/.gitkeep
+explore/plots/*.png

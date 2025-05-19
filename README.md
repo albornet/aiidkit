@@ -6,7 +6,7 @@ AIIDKIT uses machine learning / deep learning to predict post-transplant infecti
 
 To install dependencies, run the following:
 ```
-wget -qO- https://astral.sh/uv/install.sh | sh  # download uv, a package manager
+wget -qO- https://astral.sh/uv/install.sh | sh  # download and install uv, an efficient package manager
 uv venv && source .venv/bin/activate  # create a local virtual environment
 uv pip install numpy pandas tqdm ipdb  # install dependencies
 ```

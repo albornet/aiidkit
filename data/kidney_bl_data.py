@@ -208,7 +208,7 @@ def pool_kidney_bl_data(
         get_transplantation_date(patient_ID, kidney_bl_df),
         get_hospitalization_end_date(patient_ID, kidney_bl_df),
     ]], ignore_index=True).assign(value=pd.NA)
-
+    
     # Build static features dataframe
     kbl_statics = pd.concat([df.melt(var_name="attribute", value_name="value") for df in [
         get_organ_resection_status(patient_ID, kidney_bl_df),

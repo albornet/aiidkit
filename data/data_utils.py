@@ -6,6 +6,17 @@ from warnings import warn
 csts = constants.ConstantsNamespace()
 
 
+def get_valid_categories(
+    df: pd.DataFrame,
+    key: str,
+) -> list[str]:
+    """ Get all valid categories of a given column
+    """
+    category_index = df[key].value_counts().index
+    valid_categories = category_index[~category_index.isin(csts.NAN_LIKE_CATEGORIES)]
+    return valid_categories.tolist()
+
+
 def select_valid_values(
     data: pd.DataFrame,
     valid_mask: pd.Series,

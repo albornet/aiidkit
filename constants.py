@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -7,9 +8,9 @@ from dataclasses import dataclass
 class ConstantsNamespace():
 
     # Paths
-    EXCEL_DATA_PATH = "./data/Datacut_FUP226_raw-01Jan2023_v1.xlsx"
-    PICKLE_DATA_PATH = "./data/Datacut_FUP226_raw-01Jan2023_v1.pkl"
-    OUTPUT_DIR_PATH = "./data/processed/"
+    EXCEL_DATA_PATH = os.path.join("data", "data_files", "raw", "Datacut_FUP226_raw-01Jan2023_v1.xlsx")
+    PICKLE_DATA_PATH = os.path.join("data", "data_files", "raw", "Datacut_FUP226_raw-01Jan2023_v1.pkl")
+    OUTPUT_DIR_PATH = os.path.join("data", "data_files", "raw", "processed")
     
     # Sheet names
     CONSENT_SHEET = "Consent"  # "#1_CONSENT" <- names change for the full data file
