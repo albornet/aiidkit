@@ -3,14 +3,15 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True)
 class ConstantsNamespace():
 
     # Paths
-    EXCEL_DATA_PATH = os.path.join("data", "data_files", "raw", "Datacut_FUP226_raw-01Jan2023_v1.xlsx")
-    PICKLE_DATA_PATH = os.path.join("data", "data_files", "raw", "Datacut_FUP226_raw-01Jan2023_v1.pkl")
-    OUTPUT_DIR_PATH = os.path.join("data", "data_files", "raw", "processed")
+    EXCEL_DATA_PATH = os.path.join("data", "raw", "Datacut_FUP226_raw-01Jan2023_v1.xlsx")
+    PICKLE_DATA_PATH = os.path.join("data", "raw", "Datacut_FUP226_raw-01Jan2023_v1.pkl")
+    PREPROCESSED_DIR_PATH = os.path.join("data", "preprocessed")
+    HUGGINGFACE_DIR_PATH = os.path.join("data", "huggingface")
+    RESULT_DIR_PATH = os.path.join("results")
     
     # Sheet names
     CONSENT_SHEET = "Consent"  # "#1_CONSENT" <- names change for the full data file
@@ -27,4 +28,7 @@ class ConstantsNamespace():
     VALID_DATE_RANGE = (pd.Timestamp("1900-01-01"), pd.Timestamp("2030-01-01"))
     NAN_LIKE_DATES = (pd.NaT, pd.Timestamp("9999-01-01"), pd.Timestamp("2000-01-01"))
     NAN_LIKE_NUMBERS = (np.nan, pd.NA, -555.0, -666.0, -777.0, -888.0, -999.0)
-    NAN_LIKE_CATEGORIES = ("NaN", "nan", "Nan", pd.NA, np.nan, "Global consent refused", "Refused", "Not done", "Not applicable", "Unknown")
+    NAN_LIKE_CATEGORIES = (
+        "NaN", "nan", "Nan", pd.NA, np.nan, "NA in FUP", -999.0,  # "Unknown"
+        "Global consent refused", "Refused", "Not done", "Not applicable",
+    )

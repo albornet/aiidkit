@@ -174,8 +174,10 @@ cython_debug/
 .pypirc
 
 # Custom
-data/data_files/raw/*
-!data/data_files/raw/README.md
-data/data_files/processed/*
-!data/data_files/processed/.gitkeep
-explore/plots/*.png
+data/raw/*
+!data/raw/README.md
+data/processed/*
+!data/processed/.gitkeep
+data/preprocessed/*
+data/huggingface/*
+results/explore_plots/*.png

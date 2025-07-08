@@ -2,14 +2,14 @@ import os
 import datetime
 import numpy as np
 import pandas as pd
-import constants
+import src.data.constants as constants
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from lifelines import KaplanMeierFitter
-from data.data_utils import get_valid_categories
+from src.data.data_utils import get_valid_categories
 
 csts = constants.ConstantsNamespace()
-PLOT_DIR = os.path.join("explore", "plots")
+PLOT_DIR = os.path.join(csts.RESULT_DIR_PATH, "explore_plots")
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 
@@ -20,52 +20,52 @@ def get_survival_plot_dict(
     """
     survival_plot_dict = {
         "ALL": {"All patients": None},
-        "MDR": {
-            "MDR infections": {"rp_mdr_0": ["Yes"]},
-            "no-MDR infections": {"rp_mdr_0": ["No"]},
-        },
-        "INFTYPE": {
-            "Bacteria": {"bact_0": get_valid_categories(pat_inf, "bact_0")},
-            "Virus": {"virus_0": get_valid_categories(pat_inf, "virus_0")},
-            "Fungus": {"fungi_0": get_valid_categories(pat_inf, "fungi_0")},
-            "Parasite": {"parasit_0": get_valid_categories(pat_inf, "parasit_0")},
-            "All infections": None,
-        },
-        "INFSITE": {
-            "Urinary tract": {"infsite_0": ["Urinary tract"]},
-            "Blood": {"infsite_0": ["Blood"]},
-            "Respiratory tract": {"infsite_0": ["RT"]},
-            "Gastrointestinal tract": {"infsite_0": ["GI"]},
-            "Mucocutaneous": {"infsite_0": ["Mucocutaneous"]},
-            "All sites": None,
-        },
-        "VIRUS": {
-            "Herpesviridae ": {"virus_0": ["CMV", "HSV", "EBV", "VZV", "HHV6", "HHV8"]},
-            "Respiratory": {"virus_0": ["Influenza", "RSV", "Parainfluenza", "Rhinovirus", "Metapneumovirus", "Adenovirus"]},
-            "Polyomaviruses": {"virus_0": ["BKV", "JCV"]},
-            "Hepatitis": {"virus_0": ["HCV", "HBV"]},
-        },
-        "BACT": {
-            "E._coli": {"bact_0": ["E. coli"]},
-            "Other enterobacteriales": {"bact_0": ["Klebsiella sp", "Enterobacter", "Other enterobacteria"]},
-            "Enterococcus": {"bact_0": ["Enterococcus"]},
-            "Klebsiella": {"bact_0": ["Klebsiella sp"]},
-            "Staphylococcus": {"bact_0": ["Staph aureus", "St. coagulase negative", "MSSA", "MRSA"]},
-            "Pseudomonas": {"bact_0": ["Pseudomonas aeruginosa"]},
-        },
-        "URINARY": {
-            "Enterobacteriaceae" : {"infsite_0": ["Urinary tract"], "bact_0": ["E. coli", "Klebsiella sp", "Enterobacter", "Other enterobacteria"]},
-            "Enterococcus": {"infsite_0": ["Urinary tract"], "bact_0": ["Enterococcus"]},
-            "Pseudomonas aeruginosa": {"infsite_0": ["Urinary tract"], "bact_0": ["Pseudomonas aeruginosa"]},
-        },
-        "DONOR": {
-            "Potentially donor related": {"donorrelid": ["Yes"]},
-            "Not donor related": {"donorrelid": ["No"]},
-        },
-        "ISRED": {
-            "With immunosuppression reduction": {"isred": ["Yes"]},
-            "Without immunosuppression reduction": {"isred": ["No"]},
-        },
+        # "MDR": {
+        #     "MDR infections": {"rp_mdr_0": ["Yes"]},
+        #     "no-MDR infections": {"rp_mdr_0": ["No"]},
+        # },
+        # "INFTYPE": {
+        #     "Bacteria": {"bact_0": get_valid_categories(pat_inf, "bact_0")},
+        #     "Virus": {"virus_0": get_valid_categories(pat_inf, "virus_0")},
+        #     "Fungus": {"fungi_0": get_valid_categories(pat_inf, "fungi_0")},
+        #     "Parasite": {"parasit_0": get_valid_categories(pat_inf, "parasit_0")},
+        #     "All infections": None,
+        # },
+        # "INFSITE": {
+        #     "Urinary tract": {"infsite_0": ["Urinary tract"]},
+        #     "Blood": {"infsite_0": ["Blood"]},
+        #     "Respiratory tract": {"infsite_0": ["RT"]},
+        #     "Gastrointestinal tract": {"infsite_0": ["GI"]},
+        #     "Mucocutaneous": {"infsite_0": ["Mucocutaneous"]},
+        #     "All sites": None,
+        # },
+        # "VIRUS": {
+        #     "Herpesviridae ": {"virus_0": ["CMV", "HSV", "EBV", "VZV", "HHV6", "HHV8"]},
+        #     "Respiratory": {"virus_0": ["Influenza", "RSV", "Parainfluenza", "Rhinovirus", "Metapneumovirus", "Adenovirus"]},
+        #     "Polyomaviruses": {"virus_0": ["BKV", "JCV"]},
+        #     "Hepatitis": {"virus_0": ["HCV", "HBV"]},
+        # },
+        # "BACT": {
+        #     "E._coli": {"bact_0": ["E. coli"]},
+        #     "Other enterobacteriales": {"bact_0": ["Klebsiella sp", "Enterobacter", "Other enterobacteria"]},
+        #     "Enterococcus": {"bact_0": ["Enterococcus"]},
+        #     "Klebsiella": {"bact_0": ["Klebsiella sp"]},
+        #     "Staphylococcus": {"bact_0": ["Staph aureus", "St. coagulase negative", "MSSA", "MRSA"]},
+        #     "Pseudomonas": {"bact_0": ["Pseudomonas aeruginosa"]},
+        # },
+        # "URINARY": {
+        #     "Enterobacteriaceae" : {"infsite_0": ["Urinary tract"], "bact_0": ["E. coli", "Klebsiella sp", "Enterobacter", "Other enterobacteria"]},
+        #     "Enterococcus": {"infsite_0": ["Urinary tract"], "bact_0": ["Enterococcus"]},
+        #     "Pseudomonas aeruginosa": {"infsite_0": ["Urinary tract"], "bact_0": ["Pseudomonas aeruginosa"]},
+        # },
+        # "DONOR": {
+        #     "Potentially donor related": {"donorrelid": ["Yes"]},
+        #     "Not donor related": {"donorrelid": ["No"]},
+        # },
+        # "ISRED": {
+        #     "With immunosuppression reduction": {"isred": ["Yes"]},
+        #     "Without immunosuppression reduction": {"isred": ["No"]},
+        # },
     }
 
     return survival_plot_dict
@@ -104,7 +104,7 @@ def compute_infection_survival_analysis_results(
 ) -> None:
     """ Plot the number of patients infected over time, constraining the analayis
         to a subset of the infections defined by infection_constraint
-    """    
+    """
     # Select only a certain type of infections, if required
     if infection_constraints is not None:
         for key, valid_values in infection_constraints.items():
@@ -124,7 +124,7 @@ def compute_infection_survival_analysis_results(
     # Merge infections with transplants, but keeping transplant patids outside constraint
     merged = pd.merge(transplants, infections, on="patid", how="left")
 
-    # Keeps only clincally relevant infections
+    # Keeps only "clinically relevant" infections
     merged.loc[merged["inf"] != "Infection", "infdate"] = pd.NaT
 
     # Utility function to select correct infection events
