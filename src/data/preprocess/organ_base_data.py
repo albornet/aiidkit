@@ -47,7 +47,7 @@ def get_any_organ_status_uptate(patient_ID: int, data: pd.DataFrame) -> pd.DataF
     # For PNF, date is not defined, so take the transplantation date
     pnf_rows = status_update["value"].isin(["PNF/Graft loss", "PNF"])
     if pnf_rows.any():
-        organid_to_time_map = tpx_event.set_index('organid')['time']
+        organid_to_time_map = tpx_event.set_index("organid")["time"]
         imputed_times = status_update.loc[pnf_rows, "organid"].map(organid_to_time_map)
         status_update.loc[pnf_rows, "time"] = imputed_times
     

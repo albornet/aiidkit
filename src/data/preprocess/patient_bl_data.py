@@ -41,6 +41,11 @@ def get_ethnicity(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     if not ethn_other.empty:
         ethn = ethn.replace("Other", ethn_other.iloc[0].item())
     
+    ethn = ethn.map(lambda s: s.lower())
+    # Check that all values will indeed be replaced
+    if not ethn.empty and not ethn.isin(csts.ETHNICITY_NORMALIZATION_MAP.keys())["ethnicity"].any():
+        print(ethn)
+    
     # Normalize race to have a consistent format (some come in French, other in German, etc.)
     ethn = ethn.replace(csts.ETHNICITY_NORMALIZATION_MAP)
 
@@ -138,7 +143,7 @@ def get_drug_addiction(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
 def _categorize_hba1c_level(hba1c_level: float) -> str:
     """ Categorize HbA1c level given clinical guidelines
     """
-    return "normal" if hba1c_level <= 5.7 else ("prediabetes" if hba1c_level <= 6.5 else "diabetes")
+    return "Normal" if hba1c_level <= 5.7 else ("Prediabetes" if hba1c_level <= 6.5 else "Diabetes")
 
 def _categorize_glucose_level(row: pd.Series) -> str:
     """ Categorize glucose level for fasting/non-fasting patient, given clinical guidelines
@@ -147,11 +152,11 @@ def _categorize_glucose_level(row: pd.Series) -> str:
     fasting = row["value_glucfast"]
 
     if fasting == "Fasting":
-        return "normal" if glucose < 5.5 else "prediabetes" if glucose <= 7.0 else "diabetes"
+        return "Normal" if glucose < 5.5 else "Prediabetes" if glucose <= 7.0 else "Diabetes"
     elif fasting in "Random":
-        return "normal" if glucose < 7.0 else "prediabetes" if glucose <= 11.1 else "diabetes"
+        return "Normal" if glucose < 7.0 else "Prediabetes" if glucose <= 11.1 else "Diabetes"
     
-    return "unknown"
+    return "Unknown"
 
 def get_hba1c_level(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Get patient HbA1c level [%], with date
