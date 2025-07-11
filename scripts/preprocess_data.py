@@ -47,7 +47,7 @@ def main():
 
     # Process some patients, using only one process, if DEBUG_FLAG is enabled
     if DEBUG_FLAG:
-        for patient_ID in tqdm(patients_IDs[1240:1340], "Creating patient records"):
+        for patient_ID in tqdm(patients_IDs[0:1000], "Creating patient records"):
             create_patient_record(patient_ID, data_dict)
     
     # Allow raw data file exploration, if EXPLORE_FLAG is enabled
@@ -122,11 +122,12 @@ def create_patient_record(patient_ID: int, data_dict: pd.DataFrame) -> pd.DataFr
         pool_organ_base_data(patient_ID, data_dict[csts.ORGAN_BASE_SHEET]),
     ], ignore_index=True)
     patient_df = patient_df.drop_duplicates(subset=["attribute", "value", "time"])
-    patient_df = patient_df.sort_values(by=["time"])
+    patient_df = patient_df.sort_values(by=["time", "attribute"])
 
     # Save the patient record to a CSV file
-    save_path = os.path.join(csts.PREPROCESSED_DIR_PATH, f"patient_{patient_ID}.csv")
-    patient_df.to_csv(save_path, index=False)
+    if not DEBUG_FLAG:
+        save_path = os.path.join(csts.PREPROCESSED_DIR_PATH, f"patient_{patient_ID}.csv")
+        patient_df.to_csv(save_path, index=False)
 
     # # Debug case
     # if DEBUG_FLAG:

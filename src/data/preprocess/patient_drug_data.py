@@ -6,7 +6,7 @@ from src.data.data_utils import *
 # PATIENT PRESCRIPTION HISTORY #
 ################################
 
-def get_drug_events(patient_ID:int, data:pd.DataFrame, event_type:str) -> pd.DataFrame:
+def get_drug_events(patient_ID: int, data: pd.DataFrame, event_type: str) -> pd.DataFrame:
     """ Build start or stop drug events for a patient, with the type of drug as
         the entitiy, the drug name as attribute, the nature of the event as value,
         and the event date as time
@@ -26,7 +26,8 @@ def get_drug_events(patient_ID:int, data:pd.DataFrame, event_type:str) -> pd.Dat
     return pd.DataFrame({
         "entity": drug_class["value"].map(lambda v: f"Drug event: {v}"),
         "attribute": drug_type["value"].map(lambda v: f"Drug - {v}"),
-        "value": event_type,  # drug_counter["drug_counter"].map(lambda c: f"{event_type} ({c})"),
+        # "value": drug_counter["drug_counter"].map(lambda c: f"{event_type} ({c})"),
+        "value": event_type.capitalize(),
         "time": drug_type["time"],
     })
 

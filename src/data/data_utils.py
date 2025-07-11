@@ -45,12 +45,12 @@ def select_valid_values(
 
 
 def get_date_by_key(
-    patient_ID:int,
-    data:pd.DataFrame,
-    value_key:str,
-    valid_range:tuple[pd.Timestamp, pd.Timestamp]=csts.VALID_DATE_RANGE,
-    nan_like_values:tuple[Union[str, pd.Timestamp], ...]=csts.NAN_LIKE_DATES,
-) -> pd.Timestamp:
+    patient_ID: int,
+    data: pd.DataFrame,
+    value_key: str,
+    valid_range: tuple[pd.Timestamp, pd.Timestamp]=csts.VALID_DATE_RANGE,
+    nan_like_values: tuple[Union[str, pd.Timestamp], ...]=csts.NAN_LIKE_DATES,
+) -> pd.DataFrame:
     """ Get date(s) by key if in the valid range
     """
     # Filter relevant patient data
@@ -66,34 +66,42 @@ def get_date_by_key(
 
 
 def get_categorical_feature_by_key(
-    patient_ID:int,
-    data:pd.DataFrame,
-    value_key:str,
-    valid_categories:list[str]|None=None,
-    nan_like_values:tuple[str, ...]=csts.NAN_LIKE_CATEGORIES,
+    patient_ID: int,
+    data: pd.DataFrame,
+    value_key: str,
+    valid_categories: list[str]|None=None,
+    nan_like_values: tuple[str, ...]=csts.NAN_LIKE_CATEGORIES,
+    context_key: str|None=None,
 ) -> pd.DataFrame:
     """ Get a categorical feature by key if it is in the valid categories
         TODO: ADD df.melt(var_name="attribute", value_name="value") TO THIS FUNCTION BEFORE RETURN
     """
+    # Check what keys need to be retrieved from the patient data
+    retrieved_keys = [value_key]
+    if context_key is not None:
+        retrieved_keys.append(context_key)
+
     # Filter relevant patient data
-    feats = data.loc[data["patid"] == patient_ID, [value_key]]  # .copy()
+    feats = data.loc[data["patid"] == patient_ID, retrieved_keys]  # .copy()
 
     # Replace nan-like entries with pd.NA only if they are not in the valid list
     feats[value_key] = feats[value_key].where(~feats[value_key].isin(nan_like_values), other=pd.NA)
 
-    # Return valid entries only (i.e., entries that are in valid_categories)
+    # Select valid entries (i.e., entries that are in valid_categories)
     if valid_categories is None:
         return feats.dropna(subset=[value_key])  # return feats
     valid_mask = feats[value_key].isin(valid_categories)
-    return select_valid_values(feats, valid_mask, patient_ID, value_key)
+    valid_feats = select_valid_values(feats, valid_mask, patient_ID, value_key)
+
+    return valid_feats
 
 
 def get_numerical_feature_by_key(
-    patient_ID:int,
-    data:pd.DataFrame,
-    value_key:str,
-    valid_range:tuple[Union[int, float], Union[int, float]]|None=None,
-    nan_like_values:tuple[Union[str, float], ...]=csts.NAN_LIKE_NUMBERS,
+    patient_ID: int,
+    data: pd.DataFrame,
+    value_key: str,
+    valid_range: tuple[Union[int, float], Union[int, float]]|None=None,
+    nan_like_values: tuple[Union[str, float], ...]=csts.NAN_LIKE_NUMBERS,
 ) -> pd.DataFrame:
     """ Get a numerical feature by key if it is in the valid range
         TODO: ADD df.melt(var_name="attribute", value_name="value") TO THIS FUNCTION BEFORE RETURN
@@ -158,12 +166,18 @@ def get_time_value_pairs(
     valid_time_range: tuple[pd.Timestamp, pd.Timestamp]=csts.VALID_DATE_RANGE,
     valid_number_range: tuple[Union[int, float], Union[int, float]]|None=None,
     valid_categories: list[str]|None=None,
+    context_key: str|None=None,
 ) -> pd.DataFrame:
     """ Get time-value pairs for a given patient, returning data pairs with
         columns "time" and "value", and "attribute" for the value key
     """
+    # Check what keys need to be retrieved from the patient data
+    retrieved_keys = [value_key, time_key]
+    if context_key is not None:
+        retrieved_keys.append(context_key)
+
     # Select given patient feature value(s) and associated time(s)
-    feats = data.loc[data["patid"] == patient_ID, [value_key, time_key]]  # .copy()
+    feats = data.loc[data["patid"] == patient_ID, retrieved_keys]  # .copy()
     feats = feats.rename(columns={time_key: "time", value_key: "value"})
     feats = feats.assign(attribute=value_key)
     
@@ -179,18 +193,18 @@ def get_time_value_pairs(
 
 
 def get_longitudinal_data(
-    patient_ID:int, 
-    data:pd.DataFrame,
-    time_key:str,
-    value_key:str,
-    value_type:str="categorical",
-    attribute_key:str|None=None,
-    nan_like_times:tuple[pd.Timestamp, ...]=csts.NAN_LIKE_DATES,
-    nan_like_numbers:tuple[Union[str, float], ...]=csts.NAN_LIKE_NUMBERS,
-    nan_like_categories:tuple[Union[str, float], ...]=csts.NAN_LIKE_CATEGORIES,
-    valid_time_range:tuple[pd.Timestamp, pd.Timestamp]=csts.VALID_DATE_RANGE,
-    valid_number_range:tuple[Union[int, float], Union[int, float]]|None=None,
-    valid_categories:list[str]|None=None,
+    patient_ID: int, 
+    data: pd.DataFrame,
+    time_key: str,
+    value_key: str,
+    value_type: str="categorical",
+    attribute_key: str|None=None,
+    nan_like_times: tuple[pd.Timestamp, ...]=csts.NAN_LIKE_DATES,
+    nan_like_numbers: tuple[Union[str, float], ...]=csts.NAN_LIKE_NUMBERS,
+    nan_like_categories: tuple[Union[str, float], ...]=csts.NAN_LIKE_CATEGORIES,
+    valid_time_range: tuple[pd.Timestamp, pd.Timestamp]=csts.VALID_DATE_RANGE,
+    valid_number_range: tuple[Union[int, float], Union[int, float]]|None=None,
+    valid_categories: list[str]|None=None,
 ) -> pd.DataFrame:
     """ Get longitudinal data for a given patient ID, data key, and date key
         - Made for raw data with format "{value_key}_{i}" and "{time_key}_{i}"

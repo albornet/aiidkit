@@ -1,25 +1,34 @@
 import numpy as np
 import pandas as pd
 from src.data.data_utils import *
+from src.data.preprocess.kidney_bl_data import (
+    get_transplantation_date as get_transplantation_date_from_kid_bl_module,
+    get_immuno_test_hla_antibodies as get_immuno_test_hla_antibodies_from_kid_bl_module,
+)
 
 
 ##############
 # DATES INFO #
 ##############
 
-def get_assessment_date(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-    # INFO: this may be used for dating biopsy tests (to check)
-    return get_date_by_key(patient_ID, data, "assdate")
+def get_assessment_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+    """ NOTE: this could be used for dating biopsy tests (but not used for now)
+    """
+    assdate = get_date_by_key(patient_ID, data, "assdate")
+    return assdate.rename(columns={"assdate": "Kidney FUP assessment date"})
 
-def get_transplantation_date(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-    return get_date_by_key(patient_ID, data, "tpxdate")
+def get_transplantation_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+    """ NOTE: not used for now (same info can be obtained in kidney_bl_data and organ_base_data)
+        TODO: check that all info sources are consistent
+    """
+    return get_transplantation_date_from_kid_bl_module(patient_ID, data)
 
 
 #############################
 # LONGITUDINAL PATIENT INFO #
 #############################
 
-def get_insufficient_urine_level(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
+def get_insufficient_urine_level(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Whether patient has insufficient urine level in the 24 hours after transplantation
     """
     urine24 = get_time_value_pairs(
@@ -27,9 +36,9 @@ def get_insufficient_urine_level(patient_ID:int, data:pd.DataFrame) -> pd.DataFr
         value_type="categorical", valid_categories=["No", "Yes"],
     )
     urine24["time"] = urine24["time"] + pd.Timedelta(days=1)
-    return urine24
+    return urine24.assign(attribute="Insufficient urine level")
 
-def get_bkv_uremia_level(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
+def get_bkv_uremia_level(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ BKV level in copies/ml, from 0 to approx. 10_000_000 (+ nan-like values),
         hence, we transform the value with log_10(value + 1)
         QUESTION: WHY data[data["bkvdesc"] == "Above"]["bkv"] GIVES LOW VALUES?
@@ -39,9 +48,9 @@ def get_bkv_uremia_level(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
         value_type="numerical", valid_number_range=(0, 10_000_000),
     )
     bkv["value"] = np.log10(bkv["value"].add(1.0))
-    return bkv
+    return bkv.assign(attribute="BKV uremia level [log-(copies/ml)]")
 
-def get_protein_uria_level(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
+def get_protein_uria_level(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Protein uria level in copies/ml, from 0 to approx. 4_000 (+ nan-like values)
         hence, we transform the value with log_10(value + 1)
         QUESTION: WHY data[data["proteinuriadesc"] == "Above"]["proteinuria"] GIVES LOW VALUES?
@@ -51,30 +60,37 @@ def get_protein_uria_level(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
         value_type="numerical", valid_number_range=(0, 10_000),
     )
     protein_uria["value"] = np.log10(protein_uria["value"].add(1))
-    return protein_uria
+    return protein_uria.assign(attribute="Protein uria level [log-(copies/ml)]")
 
-def get_early_allograft_dysfunction(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-    """ Whether patient had a PNF/DGF event, with DGF duration as DGF value
+def get_early_allograft_dysfunction(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+    """ Whether patient had a PNF or a DGF event, with DGF duration as DGF value
         Note: there are 25 patients with "PNF" events, for which value will simply be "occured"
-        QUESTION: IS IT OK TO CONSIDER THAT PNF OCCURS AT TPXDATE AND DGF STARTS AT TPXDATE (OR TPXDATE + 7 DAYS)?
         QUESTION: WHAT IS THE UNIT OF dgfduration?
     """
     dgf_data = data.loc[data["patid"] == patient_ID, ["dgf", "dgfduration", "tpxdate"]]
+    dgf_data.loc[dgf_data["dgfduration"].isin(csts.NAN_LIKE_NUMBERS), "dgfduration"] = np.nan
+
     valid_dgf_categories = ["DGF", "PNF"]
-    relevant_data = dgf_data[dgf_data["dgf"].isin(valid_dgf_categories)].astype(object)
+    relevant_data = dgf_data[dgf_data["dgf"].isin(valid_dgf_categories)]
 
     if relevant_data.empty:
         return pd.DataFrame()
 
-    relevant_data = relevant_data.rename(columns={"dgf": "attribute", "dgfduration": "value", "tpxdate": "time"})
-    relevant_data.loc[relevant_data["attribute"] == "PNF", "value"] = "occured"
+    relevant_data = relevant_data.astype(object)
+    relevant_data = relevant_data.rename(
+        columns={"dgf": "attribute", "dgfduration": "value", "tpxdate": "time"},
+    )
+    relevant_data.loc[relevant_data["attribute"] == "PNF", "value"] = "Occured"
+    relevant_data.loc[relevant_data["attribute"] == "DGF", "attribute"] = "DGF [days?]"
+    
     return relevant_data
 
-def get_reason_for_graft_loss(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
+def get_reason_for_graft_loss(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Graft loss is any event that leads to the removal of the transplanted organ,
         which can include a PNF event, but not only
     """
-    return get_longitudinal_data(patient_ID, data, "glodate", "glo")
+    reason_for_glo = get_longitudinal_data(patient_ID, data, "glodate", "glo")
+    return reason_for_glo.assign(attribute="Reason for graft loss")
 
 def _define_rj_status(value: Union[str, float]) -> str:
     """ If present, add clinical status of rejection event
@@ -85,7 +101,7 @@ def _define_rj_status(value: Union[str, float]) -> str:
     else:
         return f"Rejection type ({str(value).lower()} status)"
 
-def get_rejection_event(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
+def get_rejection_event(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Get rejection event and associated date, using the rejection event
         clinical status (clinical, subclinical) as an attribute, if existing
     """
@@ -101,47 +117,23 @@ def get_rejection_event(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
 
     return rj_events
 
-def get_allograft_disease_event(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-    return get_longitudinal_data(patient_ID, data, "alldisdate", "alldis")
+def get_allograft_disease_event(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+    alldis = get_longitudinal_data(patient_ID, data, "alldisdate", "alldis")
+    return alldis.assign(attribute="Allograft disease")
 
 def get_transplant_related_complication_event(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-    return get_longitudinal_data(patient_ID, data, "txcompdate", "txcomp")
+    tpxcomp = get_longitudinal_data(patient_ID, data, "txcompdate", "txcomp")
+    return tpxcomp.assign(attribute="Transplant related complication")
+
+def get_immuno_test_hla_antibodies(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+    """ Retrieve results from autoimmune tests (human leukocyte antigen - HLA - antibodies)
+    """
+    return get_immuno_test_hla_antibodies_from_kid_bl_module(patient_ID, data)
 
 
 ################################
 # HISTOLOGY AND IMMUNOLOGY TESTS
 ################################
-
-# def get_immuno_test_highest_pra(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-#     """ Retrieve results from immunological tests (peak of panel reactive antibody - PRA)
-#         QUESTION: WHICH OF IMMUNUM VS IMMURES IS THE MOST RELEVANT?
-#         ANSWER -> USED IMMURES AND NOT IMMUNUM (so: not using this function)
-#                   BECAUSE THIS ONE HAS TOO FEW ACTUAL + NUMERICAL VALUES
-#     """
-#     # The test names are given by the fields "immu_#"
-#     return get_longitudinal_data(patient_ID, data, "immudate", "immunum", attribute_key="immu")
-    
-def get_immuno_test_hla_antibodies(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
-    """ Retrieve results from immunological tests (human leukocyte antigen - HLA - antibodies)
-        QUESTION: WHICH OF IMMUNUM VS IMMURES IS THE MOST RELEVANT?
-        QUESTION: IS IMMUMETH_# AN IMPORTANT FIELD?
-    """
-    # The test names are given by the fields "immu_#"
-    immu_tests = get_longitudinal_data(
-        patient_ID=patient_ID,
-        data=data,
-        time_key="immudate",
-        value_key="immures",
-        attribute_key="immu",
-    )
-    
-    # Some "immu_#" are "Unknown", all with "Unknown" as value, and "NaT" as time
-    immu_tests = immu_tests[immu_tests["attribute"] != "Unknown"]
-    
-    # Keep where the attribute comes from in the attribute key
-    immu_tests["attribute"] = immu_tests["attribute"].apply(lambda s: f"Immu Test - {s}")
-
-    return immu_tests
 
 def _parse_banff_scores(val: str, prefix: str) -> int:
     """ Parse a string-based Banff score (e.g., "t0", "v1") into the corresponding integer
@@ -176,10 +168,10 @@ def _get_raw_banff_scores(patient_ID, data, prefix, biopsy_date_key="immudate"):
     
     # Drop the adequacy information (all satisfactory) and retrieve the score name
     banff_scores["attribute"] = f"Banff score - {prefix}"
-    
+
     return banff_scores
 
-def get_banff_results(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
+def get_banff_results(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Retrieve all possible scores from Banff assessment data for a given patient
         Each score is defined as such: 0: no lesion, 1: mild, 2: moderate, 3: severe
     """
@@ -217,8 +209,8 @@ def get_banff_results(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
 #########################
 
 def pool_kidney_fup_data(
-    patient_ID:int,
-    kidney_fup_df:pd.DataFrame,
+    patient_ID: int,
+    kidney_fup_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """ Get date, static, and longitudinal kidney follow-up data for one patient
     """
@@ -236,7 +228,6 @@ def pool_kidney_fup_data(
         get_rejection_event(patient_ID, kidney_fup_df),
         get_allograft_disease_event(patient_ID, kidney_fup_df),
         get_transplant_related_complication_event(patient_ID, kidney_fup_df),
-        # get_immuno_test_highest_pra(patient_ID, kidney_fup_df),  # keep? -> for now no, since very few values compared to immures
         get_immuno_test_hla_antibodies(patient_ID, kidney_fup_df),
         get_banff_results(patient_ID, kidney_fup_df),
     ])
@@ -244,7 +235,7 @@ def pool_kidney_fup_data(
     # Finalize patient dataframe
     patient_kfup_df = concatenate_clinical_information([kfup_paired, kfup_longitudinals])
     patient_kfup_df = patient_kfup_df.drop_duplicates()
-    patient_kfup_df = patient_kfup_df.assign(entity="kidney_fup")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
+    patient_kfup_df = patient_kfup_df.assign(entity="Kidney follow-up info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
     patient_kfup_df = patient_kfup_df.sort_values(by=["time"])
     patient_kfup_df = patient_kfup_df[["entity", "attribute", "value", "time"]]
 

@@ -180,4 +180,4 @@ data/processed/*
 !data/processed/.gitkeep
 data/preprocessed/*
 data/huggingface/*
-results/explore_plots/*.png
+results
