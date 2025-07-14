@@ -181,3 +181,4 @@ data/processed/*
 data/preprocessed/*
 data/huggingface/*
 results
+wandb

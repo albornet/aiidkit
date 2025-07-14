@@ -21,7 +21,7 @@ from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 
 import argparse
-import src.data.constants as constants
+import src.constants as constants
 csts = constants.ConstantsNamespace()
 parser = argparse.ArgumentParser(description="Process some integers.")
 parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")

@@ -1,9 +1,12 @@
+import os
+import yaml
 import random
 import torch
 import torch.nn as nn
 from transformers import (
     AutoModelForMaskedLM,
     AutoModelForCausalLM,
+    AutoConfig,
 )
 from transformers.modeling_outputs import (
     MaskedLMOutput,
@@ -14,36 +17,49 @@ from torch.nn.utils.rnn import pad_sequence
 from dataclasses import dataclass
 from typing import Union, Optional
 
+from src.model.model_utils import PatientEmbeddingLayer
+import src.constants as constants
+csts = constants.ConstantsNamespace()
+model_cfg_path = os.path.join(csts.MODEL_CONFIG_DIR_PATH, "patient_token_embedder.yaml")
+with open(model_cfg_path, "r") as f:
+    model_cfg = yaml.safe_load(f)
 
-class PatientEmbeddingModel(nn.Module):
+
+class PatientTokenEmbeddingModel(nn.Module):
     def __init__(
         self,
         original_model_id: str,
         language_model_type: str,
-        num_value_tokens: int,
-        num_type_tokens: int,
+        vocabs: dict[str, dict[str, int]],
         tie_embedding_to_decoder: bool=False,
+        llm_kwargs: dict[str, int]=None,
     ):
         super().__init__()
         assert language_model_type in ["masked", "causal"],\
             "language_model_type must be masked or causal"
         
-        # Initialize LLM from an original pre-trained model
+        # Load parametesr of the given model and modify them as required
+        config = AutoConfig.from_pretrained(original_model_id)
+        if llm_kwargs is not None:
+            for value, key in llm_kwargs.items():
+                setattr(config, value, key)
+
+        # Initialize model from an original pre-trained LLM and return hidden states
         if language_model_type == "masked":
-            self.llm = AutoModelForMaskedLM.from_pretrained(original_model_id)
+            self.llm = AutoModelForMaskedLM.from_config(config)
         elif language_model_type == "causal":
-            self.llm = AutoModelForCausalLM.from_pretrained(original_model_id)
+            self.llm = AutoModelForCausalLM.from_config(config)
         self.hidden_size = self.llm.config.hidden_size
         self.num_tokens_max = self.llm.config.max_position_embeddings
         
         # Create embedding layer and replace the LLM one to prevent incompatibility
         self.embedding_layer = PatientEmbeddingLayer(
             embedding_dim=self.hidden_size,
-            num_value_tokens=num_value_tokens,
-            num_type_tokens=num_type_tokens,
+            vocabs=vocabs,
         )
         
         # Modify the LLM head (classifier) to match the number of value tokens
+        num_value_tokens = len(vocabs["value_binned"])
         self.llm.config.vocab_size = num_value_tokens
         new_decoder_layer = nn.Linear(
             in_features=self.hidden_size, 
@@ -65,6 +81,7 @@ class PatientEmbeddingModel(nn.Module):
                 self.llm.cls.predictions.decoder.weight = value_embedding_weights
             elif language_model_type == "causal":
                 self.llm.lm_head.weight = value_embedding_weights
+
         
     def _reset_weights_fn(self, module: nn.Module) -> None:
         """ Make any weight or bias parameter contiguous and untie any shared
@@ -85,9 +102,7 @@ class PatientEmbeddingModel(nn.Module):
             
     def forward(
         self,
-        times: torch.Tensor,
-        values: torch.Tensor,
-        types: torch.Tensor,
+        input_dict: dict[str: list[str|int]],
         attention_mask: Optional[torch.Tensor]=None,
         head_mask: Optional[torch.Tensor]=None,
         labels: Optional[torch.LongTensor]=None,
@@ -104,10 +119,10 @@ class PatientEmbeddingModel(nn.Module):
             only computed for the tokens with labels in [0, ..., config.vocab_size].
         """
         # Generate patient embeddings
-        patient_embeddings = self.embedding_layer(times, values, types)
-        
+        patient_embeddings = self.embedding_layer(**input_dict)
+
         # Forward to the LLM model using inputs_embeds
-        return self.llm(
+        outputs = self.llm(
             input_ids=None,  # inputs_embeds is used instead
             inputs_embeds=patient_embeddings,
             labels=labels,
@@ -117,59 +132,13 @@ class PatientEmbeddingModel(nn.Module):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        
 
-class PatientEmbeddingLayer(nn.Module):
-    def __init__(
-        self,
-        embedding_dim: int,
-        num_value_tokens: int,
-        num_type_tokens: int,
-    ):
-        """_summary_
-
-        Args:
-            embedding_dim (int): output dimension of the generated embeddings
-            type_vocab (dict[str, int]): vocabulary for the "type" tokens
-        """
-        super().__init__()
+        # Need to save some memory
+        if outputs.hidden_states is not None:
+            outputs.hidden_states = outputs.hidden_states[-1:]
+            
+        return outputs
         
-        self.time_linear = nn.Linear(1, embedding_dim)
-        self.value_embedding = nn.Embedding(num_value_tokens, embedding_dim, padding_idx=0)
-        self.type_embedding = nn.Embedding(num_type_tokens, embedding_dim, padding_idx=0)
-        
-        self.layer_norm = nn.LayerNorm((embedding_dim,), eps=1e-05, elementwise_affine=True)
-        self.dropout = nn.Dropout(p=0.1, inplace=False)
-        
-    def forward(
-        self,
-        times: torch.Tensor,
-        values: torch.Tensor,
-        types: torch.Tensor,
-    ):
-        """ Generate a unified embedding tensor for patient measurement events
-            that come with time, value, and type of measurements
-        
-        Args:
-            times (torch.Tensor): time of measurements
-            values (torch.Tensor): value of measurements
-            types (torch.Tensor): type of measurements
-
-        Returns:
-            torch.Tensor: output embedding tensor for patient measurements
-        """
-        # Embed each input tensor
-        time_embed = self.time_linear(times)
-        value_embed = self.value_embedding(values)
-        type_embed = self.type_embedding(types)
-        
-        # Combine embeddings into a single tensor
-        combined_embeddings = time_embed + value_embed + type_embed
-        combined_embeddings = self.layer_norm(combined_embeddings)
-        combined_embeddings = self.dropout(combined_embeddings)
-        
-        return combined_embeddings
-
 
 @dataclass
 class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
@@ -185,6 +154,7 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
     mask_id: int=1
     bos_id: int=2
     eos_id: int=3
+    unk_id: int=4
     num_tokens_max: int=512
     num_mlm_labels: Optional[int]=None
     mlm_probability: float=0.15
@@ -218,24 +188,32 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
                 enclosed = self.add_bos_eos_ids(to_enclose, data_key)
                 samples[batch_idx][data_key] = enclosed
                 
-        # Create batch object by padding time, value, and type sequences
-        times = [e["times"] for e in samples]
-        values = [e["values"] for e in samples]
-        types = [e["types"] for e in samples]
-        batch = {
-            "times": pad_sequence(times, batch_first=True, padding_value=float(self.pad_id)),
-            "values": pad_sequence(values, batch_first=True, padding_value=self.pad_id),
-            "types": pad_sequence(types, batch_first=True, padding_value=self.pad_id),
-        }
-        
-        # Mask values and record original values as labels if MLM is used
+        # Pad all sequences needed for the embedding layer
+        padded_sequences = {}
+        features_to_pad = ["entity", "attribute", "value_binned", "time"]
+        for key in features_to_pad:
+            sequences = [s[key] for s in samples]
+            padding_value = 0.0 if key == 'time' else float(self.pad_id)
+            padded_sequences[key] = pad_sequence(
+                sequences, batch_first=True, padding_value=padding_value
+            )
+
+        # The language modeling task is on the 'value_binned' feature
+        values_to_predict = padded_sequences["value_binned"]
+
+        # Update the dictionary with the masked values for the model input
         if self.mlm:
             assert self.num_mlm_labels is not None, "Define the number of labels for mlm"
-            batch["values"], batch["labels"] = self.masked_modelling(batch["values"])
-        
-        # If MLM is not used, causal language modelling labels are generated 
+            masked_values, labels = self.masked_modelling(values_to_predict)
+            padded_sequences["value_binned"] = masked_values
         else:
-            batch["labels"] = self.causal_modelling(batch["values"])
+            labels = self.causal_modelling(values_to_predict)
+
+        # Assemble the final batch in the structure the model's forward() method expects
+        batch = {
+            "input_dict": padded_sequences,
+            "labels": labels
+        }
         
         return batch
         
@@ -247,7 +225,7 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
         """ Add bos and eos token ids or first and last time to a sequence
             given the data it contains
         """
-        if data_key == "times":
+        if data_key == "time":
             to_add = [sequence[0].unsqueeze(0), sequence[-1].unsqueeze(0)]
         else:
             to_add = [torch.tensor([self.bos_id]), torch.tensor([self.eos_id])]

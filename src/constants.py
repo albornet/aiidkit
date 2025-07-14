@@ -12,6 +12,7 @@ class ConstantsNamespace():
     PREPROCESSED_DIR_PATH = os.path.join("data", "preprocessed")
     HUGGINGFACE_DIR_PATH = os.path.join("data", "huggingface")
     RESULT_DIR_PATH = os.path.join("results")
+    MODEL_CONFIG_DIR_PATH = os.path.join("configs")
     
     # Sheet names
     CONSENT_SHEET = "Consent"  # "#1_CONSENT" <- names change for the full data file

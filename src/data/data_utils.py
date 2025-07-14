@@ -1,5 +1,5 @@
 import pandas as pd
-import src.data.constants as constants
+import src.constants as constants
 from typing import Union
 from warnings import warn
 

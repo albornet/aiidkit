@@ -1,0 +1,35 @@
+# Dataset building
+DEBUG: false
+BUILD_HUGGINGFACE_DATASET: false
+
+# Model arguments
+ORIGINAL_MODEL_ID: bert-base-uncased  # gpt2, bert-base-uncased
+ORIGINAL_MODEL_TASK: masked  # causal, masked
+ORIGINAL_MODEL_PARAMS:  # any parameter to modify from the original model
+  output_hidden_states: true
+  # num_attention_heads: 4
+  # num_hidden_layers: 4
+  # hidden_size: 256
+  # intermediate_size: 1024
+DEFAULT_BASE_VOCAB:
+  "[PAD]": 0
+  "[MASK]": 1
+  "[BOS]": 2
+  "[EOS]": 3
+  "[UNK]": 4
+
+# Training arguments
+DEFAULT_TRAINING_ARGUMENTS:
+  eval_strategy: steps
+  save_strategy: steps
+  save_total_limit: 1
+  logging_steps: 10
+  eval_steps: 250
+  save_steps: 250
+  warmup_steps: 1000
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  bf16: true
+  num_train_epochs: 250
+  per_device_train_batch_size: 32
+  per_device_eval_batch_size: 32

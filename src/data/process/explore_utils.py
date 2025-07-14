@@ -2,7 +2,7 @@ import os
 import datetime
 import numpy as np
 import pandas as pd
-import src.data.constants as constants
+import src.constants as constants
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from lifelines import KaplanMeierFitter
