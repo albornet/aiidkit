@@ -7,6 +7,7 @@ from src.data.preprocess.kidney_bl_data import pool_kidney_bl_data
 from src.data.preprocess.patient_bl_data import pool_patient_bl_data
 from src.data.preprocess.patient_drug_data import pool_patient_drug_data
 from src.data.preprocess.organ_base_data import pool_organ_base_data
+from src.data.preprocess.patient_infectious_disease_data import pool_patient_infection_data
 
 from src.data.process.explore_utils import (
     generate_sex_distribution_plot,
@@ -90,11 +91,6 @@ def main():
             chunksize=chunksize,
         )
 
-    # TODO: create one hdf5 file from all csvs
-    # avec les train/valid/test splits à l'intérieur du fichier
-    # idée: 1 fichier par split setting (e.g., inductive.hdf5, transductive.hdf5)
-    # generate_hdf5_file(processed_path)
-
     # Success!
     print("Dataset created successfully")
 
@@ -115,11 +111,11 @@ def create_patient_record(patient_ID: int, data_dict: pd.DataFrame) -> pd.DataFr
             data_dict[csts.KIDNEY_BL_SHEET],
         ),
         pool_patient_drug_data(patient_ID, data_dict[csts.PATIENT_DRUG_SHEET]),
-        # pool_patient_stop_data(patient_ID, data_dict[csts.PATIENT_STOP_SHEET]),
-        # pool_patient_infection_data(patient_ID, data_dict[csts.PATIENT_INFECTION_SHEET]),
         pool_kidney_bl_data(patient_ID, data_dict[csts.KIDNEY_BL_SHEET]),
         pool_kidney_fup_data(patient_ID, data_dict[csts.KIDNEY_FUP_SHEET]),
         pool_organ_base_data(patient_ID, data_dict[csts.ORGAN_BASE_SHEET]),
+        # pool_patient_stop_data(patient_ID, data_dict[csts.PATIENT_STOP_SHEET]),
+        pool_patient_infection_data(patient_ID, data_dict[csts.PATIENT_INFECTION_SHEET]),
     ], ignore_index=True)
     patient_df = patient_df.drop_duplicates(subset=["attribute", "value", "time"])
     patient_df = patient_df.sort_values(by=["time", "attribute"])

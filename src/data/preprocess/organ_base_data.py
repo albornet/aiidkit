@@ -31,7 +31,10 @@ def get_any_organ_transplantation_event(
     )
 
 
-def get_any_organ_status_uptate(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+def get_any_organ_status_uptate(
+    patient_ID: int,
+    data: pd.DataFrame,
+) -> pd.DataFrame:
     """ Get graft loss or PNF events for any transplanted organ, including non-kidney
     """
     status_update = get_time_value_pairs(
@@ -124,8 +127,8 @@ def get_any_organ_resection_status(patient_ID: int, data: pd.DataFrame) -> pd.Da
 #########################
 
 def pool_organ_base_data(
-    patient_ID:int,
-    organ_base_df:pd.DataFrame,
+    patient_ID: int,
+    organ_base_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """ Get information about all organs transplanted to a patient (including non-kidney)
     """
