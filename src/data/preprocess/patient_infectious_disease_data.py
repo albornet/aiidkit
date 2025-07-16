@@ -47,7 +47,7 @@ def get_immunosuppression_reduced(infection_data:pd.DataFrame) -> Immunosuppress
     """
     Check if the immunosuppression was reduced.
     """
-    immunosuppression_reduced = infection_data['isred']
+    immunosuppression_reduced = infection_data["isred"]
     if immunosuppression_reduced == "Yes":
         return ImmunosuppressionReduced.YES
     elif immunosuppression_reduced == "No":
@@ -59,7 +59,7 @@ def get_donor_related_infections(infection_data:pd.DataFrame) -> DonorRelatedInf
     """
     Check if the infection is a potential donor-related infection.
     """
-    donor_related_infection = infection_data['donorrelid']
+    donor_related_infection = infection_data["donorrelid"]
     if donor_related_infection == "Yes":
         return DonorRelatedInfection.YES
     elif donor_related_infection == "No":
@@ -206,7 +206,7 @@ def get_required_hospitalization(
     """
     Check if the infection required hospitalization.
     """
-    required_hospitalization = infection_data['hospreqid']
+    required_hospitalization = infection_data["hospreqid"]
     if required_hospitalization == "Yes":
         return RequiredHospitalization.YES
     elif required_hospitalization == "No":
@@ -411,7 +411,7 @@ def get_data_serie(data_name:str, data:pd.DataFrame) -> list:
 
     # Remove nul or invalid values
     event_data = event_data.where(~event_data.isin(csts.NAN_LIKE_CATEGORIES), other=pd.NaT)
-    event_data = event_data.dropna(axis=1, how='all')
+    event_data = event_data.dropna(axis=1, how="all")
     longitudinal_data = []
     for col in event_data.columns:
         longitudinal_data.append(event_data[col].item())
@@ -427,7 +427,7 @@ def get_serie_from_data_serie(data_name:str, data:pd.DataFrame) -> pd.Series:
 
     # Remove nul or invalid values
     event_data = event_data.where(~event_data.isin(csts.NAN_LIKE_CATEGORIES), other=pd.NaT)
-    event_data = event_data.dropna(how='all')
+    event_data = event_data.dropna(how="all")
 
     return event_data
 
@@ -440,7 +440,7 @@ def get_data_serie_from_serie(data_name:str, data: pd.Series) -> pd.Series:
     
     # Remove nul or invalid values
     event_data = event_data.where(~event_data.isin(csts.NAN_LIKE_CATEGORIES), other=pd.NaT)
-    event_data = event_data.dropna(how='all')
+    event_data = event_data.dropna(how="all")
 
     return event_data
 
@@ -478,8 +478,8 @@ def generate_eavt_table(
 
         # Helper function to format EAVT table entries
         def _create_dict(value: str|int|float|bool|datetime):
-            entity_pattern = r'((?<=[a-z])[A-Z]|(?<=[A-Z])[A-Z](?=[a-z]))'
-            entity = re.sub(pattern=entity_pattern, repl=r' \1', string=parent_name)
+            entity_pattern = r"((?<=[a-z])[A-Z]|(?<=[A-Z])[A-Z](?=[a-z]))"
+            entity = re.sub(pattern=entity_pattern, repl=r" \1", string=parent_name)
             attribute = parent_attr.strip("_").replace("_", " ")
             attribute = attribute[0].upper() + attribute[1:]
 
@@ -516,7 +516,7 @@ def generate_eavt_table(
             return
 
         # Handle custom objects by iterating through their attributes
-        if hasattr(obj, '__dict__'):
+        if hasattr(obj, "__dict__"):
             for attr, val in vars(obj).items():
                 _flatten(val, child_name, attr)
             return
@@ -524,7 +524,7 @@ def generate_eavt_table(
         # Fallback for any other type
         rows.append(_create_dict(str(obj)))
 
-    # Start the recursion from the root object's attributes
+    # Start the recursion from the root object"s attributes
     root_name = f"{root_obj.__class__.__name__}"
     for attr, val in vars(root_obj).items():
         _flatten(val, root_name, attr)
@@ -553,8 +553,6 @@ def pool_patient_infection_data(
     if not pat_inf_dfs:
         patient_df = pd.DataFrame()
     else:
-        patient_df = pd.concat(pat_inf_dfs, ignore_index=True)   
-
-    import ipdb; ipdb.set_trace()
+        patient_df = pd.concat(pat_inf_dfs, ignore_index=True)
 
     return patient_df
