@@ -84,3 +84,61 @@ class TimeEmbedding(nn.Module):
         embeddings = torch.cat([torch.sin(times_scaled), torch.cos(times_scaled)], dim=-1)
 
         return embeddings
+
+
+def test_time_embedding_visualization():
+    """ Tests and visualizes the TimeEmbedding layer
+    """
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+    from sklearn.manifold import TSNE
+    print("Running TimeEmbedding visualization test...")
+
+    # Test parameters
+    embedding_dim = 512
+    time_range_start = -10000
+    time_range_end = 10000
+    step = 25  # use a step to avoid too many points, which slows down t-SNE
+
+    # Generate time embeddings
+    time_embedding_layer = TimeEmbedding(embedding_dim)
+    time_inputs = torch.arange(time_range_start, time_range_end + 1, step).float()
+    with torch.no_grad():  # no need to track gradients
+        embeddings = time_embedding_layer(time_inputs)
+    
+    # Reduce dimensionality with t-SNE
+    n_components = 3
+    tsne = TSNE(n_components=n_components, perplexity=30, max_iter=5000)
+    reduced_embeddings = tsne.fit_transform(embeddings.numpy())
+    
+    # Plot the results
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(projection="3d" if n_components > 2 else "2d")
+    scatter = ax.scatter(
+        reduced_embeddings[:, 0],
+        reduced_embeddings[:, 1],
+        reduced_embeddings[:, 2] if n_components > 2 else None,
+        s=10,
+        c=time_inputs.numpy(),
+        cmap="viridis",
+        alpha=0.8,
+    )
+
+    # Save polished figure
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label("Time Value", fontsize=12, weight="bold")
+    ax.set_title(
+        f"t-SNE Visualization of Time Embeddings (Dim={embedding_dim})", 
+        fontsize=16, 
+        weight="bold"
+    )
+    ax.set_xlabel("t-SNE Dimension 1", fontsize=12)
+    ax.set_ylabel("t-SNE Dimension 2", fontsize=12)
+    if n_components > 2:
+        ax.set_zlabel("t-SNE Dimension 3", fontsize=12)
+    plt.savefig("time_embedding_tsne.png", dpi=300, bbox_inches="tight")
+
+
+if __name__ == "__main__":
+    test_time_embedding_visualization()

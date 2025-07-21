@@ -1,12 +1,10 @@
-# Dataset building
-DEBUG: false
-BUILD_HUGGINGFACE_DATASET: false
-
-# Model arguments
-ORIGINAL_MODEL_ID: bert-base-uncased  # gpt2, bert-base-uncased
+# Data and model arguments
+LOAD_HUGGINGFACE_DATASET: false
+ORIGINAL_MODEL_ID: answerdotai/ModernBERT-base
 ORIGINAL_MODEL_TASK: masked  # causal, masked
 ORIGINAL_MODEL_PARAMS:  # any parameter to modify from the original model
   output_hidden_states: true
+  torch_dtype: bfloat16
   # num_attention_heads: 4
   # num_hidden_layers: 4
   # hidden_size: 256
@@ -19,7 +17,7 @@ DEFAULT_BASE_VOCAB:
   "[UNK]": 4
 
 # Training arguments
-DEFAULT_TRAINING_ARGUMENTS:
+TRAINING_ARGUMENTS:
   eval_strategy: steps
   save_strategy: steps
   save_total_limit: 1
@@ -30,6 +28,7 @@ DEFAULT_TRAINING_ARGUMENTS:
   learning_rate: 0.0001
   weight_decay: 0.01
   bf16: true
-  num_train_epochs: 250
+  num_train_epochs: 100
   per_device_train_batch_size: 32
   per_device_eval_batch_size: 32
+  gradient_accumulation_steps: 1  # try to amount to 32

@@ -273,10 +273,12 @@ class Infection():
                 f"got {type(required_hospitalization)}"
             )
         self._required_hospitalization = required_hospitalization  # RequiredHospitalization enum
-        
+
         self._infection_sites = infection_sites  # List of InfectionSite enums, if any 
         self._donor_related_infection = donor_related_infection  # Enum DonorRelatedInfection, if any
         self._immunosuppression_reduced = immunosuppression_reduced
+
+        self._clinically_relevant = self.is_clinically_relevant()  # Bad idea to store it as attribute?
 
     @property
     def patient_ID(self) -> int:
@@ -291,7 +293,7 @@ class Infection():
         return self._clinical_infection_type
     
     @property
-    def required_hospitalization(self) -> bool:
+    def required_hospitalization(self) -> RequiredHospitalization:
         return self._required_hospitalization
     
     @property
@@ -305,6 +307,10 @@ class Infection():
     @property
     def infection_sites(self) -> list[InfectionSite]:
         return self._infection_sites
+    
+    @property
+    def clinically_relevant(self) -> bool:
+        return self._clinically_relevant
     
     def validate_clinical_infection_type(
         self,
@@ -329,7 +335,7 @@ class Infection():
             return 0
         return (self.infection_date - transplantation.transplantation_date).days
 
-    def is_clinically_significative(self) -> bool:
+    def is_clinically_relevant(self) -> bool:
         """
         Returns True if the infection is clinically relevant, according to the definition of clinically 
         relevant infections from STCS Infectious Diseases definitions.

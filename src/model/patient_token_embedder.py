@@ -1,5 +1,3 @@
-import os
-import yaml
 import random
 import torch
 import torch.nn as nn
@@ -16,13 +14,7 @@ from transformers.data.data_collator import DataCollatorMixin
 from torch.nn.utils.rnn import pad_sequence
 from dataclasses import dataclass
 from typing import Union, Optional
-
 from src.model.model_utils import PatientEmbeddingLayer
-import src.constants as constants
-csts = constants.ConstantsNamespace()
-model_cfg_path = os.path.join(csts.MODEL_CONFIG_DIR_PATH, "patient_token_embedder.yaml")
-with open(model_cfg_path, "r") as f:
-    model_cfg = yaml.safe_load(f)
 
 
 class PatientTokenEmbeddingModel(nn.Module):
@@ -66,22 +58,16 @@ class PatientTokenEmbeddingModel(nn.Module):
             out_features=num_value_tokens,
             bias=True,
         )
-        if language_model_type == "masked":
-            self.llm.cls.predictions.decoder = new_decoder_layer
-        elif language_model_type == "causal":
-            self.llm.lm_head = new_decoder_layer
+        self.llm.set_output_embeddings(new_decoder_layer)
         
         # Make all weights contiguous and untie any tied weight
         self.apply(self._reset_weights_fn)  # "apply" is recursive
         
         # Tie output decoder linear weights to input value embedding weights
         if tie_embedding_to_decoder:
-            value_embedding_weights = self.embedding_layer.value_embedding.weight
-            if language_model_type == "masked":
-                self.llm.cls.predictions.decoder.weight = value_embedding_weights
-            elif language_model_type == "causal":
-                self.llm.lm_head.weight = value_embedding_weights
-
+            output_embeddings = self.llm.get_output_embeddings()
+            input_embeddings = self.embedding_layer.value_embedding
+            output_embeddings.weight = input_embeddings.weight
         
     def _reset_weights_fn(self, module: nn.Module) -> None:
         """ Make any weight or bias parameter contiguous and untie any shared
@@ -109,6 +95,7 @@ class PatientTokenEmbeddingModel(nn.Module):
         output_attentions: Optional[bool]=None,
         output_hidden_states: Optional[bool]=None,
         return_dict: Optional[bool]=None,
+        **kwargs,
     ) -> Union[MaskedLMOutput, CausalLMOutput, tuple[torch.Tensor, ...]]:
         """ Masked LM forward function adapted for patient embeddings
         
@@ -133,10 +120,23 @@ class PatientTokenEmbeddingModel(nn.Module):
             return_dict=return_dict,
         )
 
-        # Need to save some memory
+        # Need to reshape and to save some memory
         if outputs.hidden_states is not None:
-            outputs.hidden_states = outputs.hidden_states[-1:]
-            
+            last_hidden_state = outputs.hidden_states[-1]
+            if last_hidden_state.ndim == 3:  # normal case
+                outputs.hidden_states = (last_hidden_state,)
+            else:  # exceptions for some models when using flash-attn-2
+                batch_size, seq_len = attention_mask.shape
+                hidden_size = last_hidden_state.shape[-1]
+                unflattened = torch.zeros(
+                    batch_size, seq_len, hidden_size,
+                    device=last_hidden_state.device,
+                    dtype=last_hidden_state.dtype
+                )
+                unflattened[attention_mask.bool()] = last_hidden_state
+                outputs.hidden_states = (unflattened,)
+        
+        # outputs["infection_labels"] = kwargs.get("infection_labels")
         return outputs
         
 
@@ -166,6 +166,10 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
     ) -> dict[str, torch.Tensor]:
         """ Collate patient embedding samples and create mlm labels for training
         """
+        # Take labels out for batching
+        label_names = [n for n in samples[0].keys() if "label" in n]
+        external_labels = {n: [s.pop(n) for s in samples] for n in label_names}
+        
         # Control each sample for sequence length
         effective_num_token_max = self.num_tokens_max - 2   # for bos and eos tokens
         for batch_idx, _ in enumerate(samples):
@@ -187,7 +191,7 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
                 to_enclose = samples[batch_idx][data_key]
                 enclosed = self.add_bos_eos_ids(to_enclose, data_key)
                 samples[batch_idx][data_key] = enclosed
-                
+
         # Pad all sequences needed for the embedding layer
         padded_sequences = {}
         features_to_pad = ["entity", "attribute", "value_binned", "time"]
@@ -197,24 +201,32 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
             padded_sequences[key] = pad_sequence(
                 sequences, batch_first=True, padding_value=padding_value
             )
+        attention_mask = (padded_sequences["entity"] != self.pad_id).long()
 
         # The language modeling task is on the 'value_binned' feature
         values_to_predict = padded_sequences["value_binned"]
 
-        # Update the dictionary with the masked values for the model input
+        # Mask input and keep masked value labels for masked language modelling
         if self.mlm:
             assert self.num_mlm_labels is not None, "Define the number of labels for mlm"
             masked_values, labels = self.masked_modelling(values_to_predict)
             padded_sequences["value_binned"] = masked_values
+        
+        # Compute labels from unmasked sequences for causal language modelling
         else:
             labels = self.causal_modelling(values_to_predict)
 
-        # Assemble the final batch in the structure the model's forward() method expects
+        # Assemble the final batch as the model's forward() method expects
         batch = {
             "input_dict": padded_sequences,
-            "labels": labels
+            "labels": labels,
+            "attention_mask": attention_mask,
         }
-        
+
+        # Put external labels back in, after all batch processing happened
+        for label_name in external_labels:
+            batch[label_name] = external_labels[label_name]
+
         return batch
         
     def add_bos_eos_ids(
@@ -254,7 +266,6 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
         
         # 10% of the time, replace masked input tokens with random value token id
         indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
-        # TODO: TAKE INTO ACCOUNT RANDOM SHIFTING
         random_words = torch.randint(self.num_mlm_labels, labels.shape, dtype=torch.long)
         inputs[indices_random] = random_words[indices_random]
         
@@ -267,8 +278,12 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
         """ Prepare labels for causal language modeling by shifting tokens to the right
             Modified from transformers.data.data_collator.py
         """
+        # Create labels from inputs (no need of manual shift: done in trainer)
         labels = inputs.clone()
+                
+        # Ensure original padding tokens are also ignored in the labels
         if self.pad_id is not None:
-            labels[labels == self.pad_id] = -100
-        
+            labels[inputs == self.pad_id] = -100
+            
         return labels
+    

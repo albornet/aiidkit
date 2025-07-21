@@ -1,8 +1,12 @@
+import re
+from enum import Enum
+from typing import Any
+from datetime import datetime
 import pandas as pd
-import src.constants as constants
 from typing import Union
 from warnings import warn
 
+import src.constants as constants
 csts = constants.ConstantsNamespace()
 
 
@@ -245,3 +249,98 @@ def get_longitudinal_data(
         long_df = long_df.assign(attribute=value_key)
     
     return long_df
+
+
+def generate_eavt_df_from_object(
+    root_obj: Any,
+    time_key: str="time",  # "infection_date"
+    filtered_attributes: list[str]=[],  # ["patient_ID"]
+    filtered_values: list[Any]=[],  # ["UNKNOWN", "Unknown", None]
+) -> pd.DataFrame:
+    """ Generate a generic EAVT (entity-attribute-value-time) dataframe from any
+        python object with a nested structure
+
+        Args:
+            root_obj: object to flatten
+            time_attribute_names: key to retrieve time associated to the object
+            filtered_attributes: list of attributes to filter out of the EAVT table
+        
+        Returns:
+            dataFrame in the EAVT format
+    """
+    # Initialize the flattened version of the object
+    rows = []
+
+    # Helper function to flatten the object recursively
+    def flatten(obj: Any, parent_name: str, parent_attr: str, list_index: int=None):
+        
+        # Filter out keys that should not appear in the EAVT table as attributes
+        if parent_attr.strip("_") in filtered_attributes + [time_key]:
+            return
+
+        # Identify event time from the object (fallback on root object if possible)
+        event_time = None  # default value
+        if hasattr(root_obj, time_key): event_time = getattr(root_obj, time_key)
+        if hasattr(obj, time_key): event_time = getattr(obj, time_key)
+
+        # Helper function to fill-in formatted EAVT table entries
+        def update_rows(value: str|int|float|bool):
+            entity_pattern = r"((?<=[a-z])[A-Z]|(?<=[A-Z])[A-Z](?=[a-z]))"
+            entity = re.sub(pattern=entity_pattern, repl=r" \1", string=parent_name)
+            attribute = parent_attr.strip("_").replace("_", " ")
+            attribute = attribute[0].upper() + attribute[1:]
+            
+            time = event_time
+            if value in filtered_values: return
+            if isinstance(value, datetime):
+                value = None
+                time = value
+            
+            eavt = {"entity": entity, "attribute": attribute, "value": value, "time": time}
+            rows.append(eavt)
+
+        # Handle simple values, which terminate the recursion
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            update_rows(obj)
+            return
+            
+        # Handle enums by using each string name
+        if isinstance(obj, Enum):
+            update_rows(obj.name)
+            return
+
+        # Handle lists by iterating and recursing for each item
+        if isinstance(obj, list):
+            if not obj:
+                update_rows(None)
+            for i, item in enumerate(obj):
+                flatten(item, parent_name, parent_attr, list_index=i)
+            return
+
+        # Create the linking row from the parent to this new child entity
+        child_name = f"{obj.__class__.__name__}"
+        if list_index is not None:  # for objects that are list elemetns
+            child_name = f"{child_name} ({list_index})"
+        update_rows(child_name)
+
+        # Handle dictionaries by iterating through key-value pairs
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                flatten(val, child_name, key)
+            return
+
+        # Handle custom objects by iterating through their attributes
+        if hasattr(obj, "__dict__"):
+            for attr, val in vars(obj).items():
+                flatten(val, child_name, attr)
+            return
+
+        # Fallback for any other type
+        update_rows(str(obj))
+
+    # Start the recursion from the root object's attributes
+    root_name = f"{root_obj.__class__.__name__}"
+    for attr, val in vars(root_obj).items():
+        flatten(val, root_name, attr)
+        
+    return pd.DataFrame(rows)

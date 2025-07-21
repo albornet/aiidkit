@@ -2,18 +2,13 @@
 # Code from https://github.com/melhk/AIIDKIT-Multi-states-models #
 ##################################################################
 
-import re
 import pandas as pd
-from enum import Enum
-from typing import Any
-from datetime import datetime
-
+from src.data.data_utils import generate_eavt_df_from_object
 from src.data.preprocess.clinical_objects import (
     Bacteria, Virus, Fungus, Parasite, Infection, InfectionType, InfectionSite,
     ImmunosuppressionReduced, DonorRelatedInfection, RequiredHospitalization,
     BacterialInfection, ViralInfection, FungalInfection, ParasiticInfection,
 )
-
 from src.constants import ConstantsNamespace
 csts = ConstantsNamespace()
 
@@ -445,93 +440,6 @@ def get_data_serie_from_serie(data_name:str, data: pd.Series) -> pd.Series:
     return event_data
 
 
-def generate_eavt_table(
-    root_obj: Any,
-    time_key: str="infection_date",
-    filtered_attributes: list[str]=["patient_ID"],
-) -> pd.DataFrame:
-    """ Generate a generic EAVT (entity-attribute-value-time) dataframe from any
-        python object with a nested structure
-
-        Args:
-            root_obj: object to flatten
-            time_attribute_names: key to retrieve time associated to the object
-            filtered_attributes: list of attributes to filter out of the EAVT table
-        
-        Returns:
-            dataFrame in the EAVT format
-    """
-    # Initialize the flattened version of the object
-    rows = []
-
-    # Helper function to flatten the object recursively
-    def _flatten(obj: Any, parent_name: str, parent_attr: str, list_index: int=None):
-        
-        # Filter out keys that should not appear in the EAVT table as attributes
-        if parent_attr.strip("_") in filtered_attributes + [time_key]:
-            return
-
-        # Identify event time from the object (fallback on root object if possible)
-        time = None  # default value
-        if hasattr(root_obj, time_key): time = getattr(root_obj, time_key)
-        if hasattr(obj, time_key): time = getattr(obj, time_key)
-
-        # Helper function to format EAVT table entries
-        def _create_dict(value: str|int|float|bool|datetime):
-            entity_pattern = r"((?<=[a-z])[A-Z]|(?<=[A-Z])[A-Z](?=[a-z]))"
-            entity = re.sub(pattern=entity_pattern, repl=r" \1", string=parent_name)
-            attribute = parent_attr.strip("_").replace("_", " ")
-            attribute = attribute[0].upper() + attribute[1:]
-
-            return {"entity": entity, "attribute": attribute, "value": value, "time": time}
-
-        # Handle simple values, which terminate the recursion
-        if obj is None or isinstance(obj, (str, int, float, bool, datetime)):
-            rows.append(_create_dict(obj))
-            return
-            
-        # Handle enums by using each string name
-        if isinstance(obj, Enum):
-            rows.append(_create_dict(obj.name))
-            return
-
-        # Handle lists by iterating and recursing for each item
-        if isinstance(obj, list):
-            if not obj:
-                rows.append(_create_dict(None))
-            for i, item in enumerate(obj):
-                _flatten(item, parent_name, parent_attr, list_index=i)
-            return
-
-        # Create the linking row from the parent to this new child entity
-        child_name = f"{obj.__class__.__name__}"
-        if list_index is not None:  # for objects that are list elemetns
-            child_name = f"{child_name} ({list_index})"
-        rows.append(_create_dict(child_name))
-
-        # Handle dictionaries by iterating through key-value pairs
-        if isinstance(obj, dict):
-            for key, val in obj.items():
-                _flatten(val, child_name, key)
-            return
-
-        # Handle custom objects by iterating through their attributes
-        if hasattr(obj, "__dict__"):
-            for attr, val in vars(obj).items():
-                _flatten(val, child_name, attr)
-            return
-
-        # Fallback for any other type
-        rows.append(_create_dict(str(obj)))
-
-    # Start the recursion from the root object"s attributes
-    root_name = f"{root_obj.__class__.__name__}"
-    for attr, val in vars(root_obj).items():
-        _flatten(val, root_name, attr)
-        
-    return pd.DataFrame(rows)
-
-
 def pool_patient_infection_data(
     patient_ID: int,
     patient_infection_df: pd.DataFrame,
@@ -547,7 +455,13 @@ def pool_patient_infection_data(
     # Flatten each patient infection event to an EAVT table
     pat_inf_dfs = []
     for inf_event in pat_inf_events:
-        pat_inf_dfs.append(generate_eavt_table(inf_event))
+        eavt_table = generate_eavt_df_from_object(
+            root_obj=inf_event,
+            time_key="infection_date",
+            filtered_attributes=["patient_ID"],
+            filtered_values=["UNKNOWN", "Unknown", None]
+        )
+        pat_inf_dfs.append(eavt_table)
     
     # Create patient dataframe by concatenating all EAVT tables
     if not pat_inf_dfs:

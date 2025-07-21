@@ -1,9 +1,10 @@
-import os
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from tqdm.contrib.concurrent import process_map
+from collections import defaultdict
 from sklearn.model_selection import train_test_split
 from datasets import Dataset, DatasetDict, concatenate_datasets
-from collections import defaultdict
 import src.constants as constants
 csts = constants.ConstantsNamespace()
 
@@ -51,13 +52,19 @@ def get_formatted_patient_dataset(
             "attribute": [vocabs["attribute"].get(a, unk_token_id) for a in sample["attribute"]],
             "value_binned": [vocabs["value_binned"].get(v, unk_token_id) for v in sample["value_binned"]],
         },
-        desc="Mapping tokens to IDs"
+        desc="Mapping tokens to IDs",
     )
     
     # Format data sequences as torch tensors
     dataset.set_format(
         type="torch",
-        columns=["entity", "attribute", "value_binned", "time"],
+        columns=["entity", "attribute", "value_binned", "time", "infection_labels"],
+    )
+
+    # (TEST) For validation data, keep only the data samples until transplantation day (i.e. time <= 0)
+    dataset["validation"] = dataset["validation"].map(
+        lambda sample: filter_by_time(sample, time_range=(None, 60)), 
+        desc="Filtering validation set for time <= 60",
     )
     
     return dataset, intervals_by_type, vocabs
@@ -68,37 +75,11 @@ def build_huggingface_patient_dataset(
     output_data_dir: str=None,
 ) -> DatasetDict:
     """ Build a huggingface dataset from individual patient csv files
-    """
-    # Function to read a patient csv file to a dictionary
-    def process_csv(file_path):
-        df = pd.read_csv(file_path)
-        
-        # Fill-in time for static values using the transplantation date
-        df["time"] = pd.to_datetime(df["time"])
-        tpx_time = df.loc[df["attribute"] == "Transplantation event", "time"].iloc[0]
-        df["time"] = df["time"].fillna(tpx_time)
-
-        # Normalize time as the difference of days with the transplantation date
-        df["time"] = (df["time"] - tpx_time).dt.days
-        df = df.sort_values("time").reset_index(drop=True)  # .astype(str)
-
-        # Handle mixed-type and NaN values (types are added later)
-        df = df.dropna(subset=["value", "attribute"])
-        df["value"] = df["value"].astype(str)
-
-        return df[["entity", "attribute", "value", "time"]].to_dict(orient="list")
-        
+    """ 
     # Create list of patient dictionaries read from patient csv files
-    data = []
-    for folder, _, file_names in os.walk(input_data_dir):  # recursive walk (why not)
-        for file_name in file_names:
-            file_root, file_ext = os.path.splitext(file_name)
-            patient_id = file_root.split("patient_")[-1]
-            is_valid_file_name = (patient_id.isdigit() and file_ext == ".csv")
-            if not is_valid_file_name: continue
-            file_path = os.path.join(folder, file_name)
-            data.append(process_csv(file_path))
-    
+    csv_paths = [str(p) for p in Path(input_data_dir).rglob("patient_*.csv")]
+    data = process_map(process_csv, csv_paths, max_workers=8, chunksize=100, desc="Reading patient files")
+
     # Create train, validation, and test splits by patient (70% // 15% // 15%)
     train_data, valtest_data = train_test_split(data, test_size=0.3, random_state=1)
     val_data, test_data = train_test_split(valtest_data, test_size=0.5, random_state=1)
@@ -113,6 +94,67 @@ def build_huggingface_patient_dataset(
     # Save dataset to disk
     dataset.save_to_disk(output_data_dir)
     print("Huggingface dataset created and saved to disk")
+
+
+def filter_by_time(
+    sample: dict[str, list],
+    time_range: tuple[int|None, int|None]=(None, 0),
+    time_column: str="time",
+    columns_to_filter: list[str]=["entity", "attribute", "value_binned", "time"],
+) -> dict[str, list]:
+    """ Keeps data points in a sequence where time is in a specific range
+        - Note: the range is inclusive, i.e. [start, end]
+        - Note: time_range is a tuple of (start, end), where None means no limit
+    """
+    # Create a boolean mask based on the inclusive range.
+    start, end = time_range
+    mask = [
+        (start is None or t >= start) and (end is None or t <= end)
+        for t in sample[time_column]
+    ]
+    
+    # Apply this mask to all relevant columns
+    for key in columns_to_filter:
+        if key in sample:
+            sample[key] = [v for v, m in zip(sample[key], mask) if m]
+            
+    return sample
+
+
+def process_csv(file_path):
+    """ Function to read a patient csv file to a dictionary of input and labels
+    """
+    df = pd.read_csv(file_path)
+    
+    # Fill-in time for static values using the transplantation date
+    df["time"] = pd.to_datetime(df["time"])
+    tpx_time = df.loc[df["attribute"] == "Transplantation event", "time"].iloc[0]
+    df["time"] = df["time"].fillna(tpx_time)
+
+    # Normalize time as the difference of days with the transplantation date
+    df["time"] = (df["time"] - tpx_time).dt.days
+    df = df.sort_values("time").reset_index(drop=True)  # .astype(str)
+
+    # Handle mixed-type and NaN values (types are added later)
+    df = df.dropna(subset=["value", "attribute"])
+    df["value"] = df["value"].astype(str)
+
+    # Compute patient labels as any clinically relevant infection occured
+    clinically_relevant_infs = df.loc[
+        df["entity"].str.contains("infection", case=False)
+        & (df["attribute"] == "Clinically relevant")
+        & (df["value"] == "True")
+    ]
+    infection_labels = {
+        "infection_time": clinically_relevant_infs["time"].tolist(),
+        "infection_type": clinically_relevant_infs["entity"].tolist()
+    }
+
+    # Join input features and infection labels into a sample dictionary
+    sample = df[["entity", "attribute", "value", "time"]].to_dict(orient="list")
+    sample.update({"infection_labels": infection_labels})
+    
+    return sample
 
 
 def bin_values_by_type(
