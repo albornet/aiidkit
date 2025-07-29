@@ -9,8 +9,8 @@ from lifelines import KaplanMeierFitter
 from src.data.data_utils import get_valid_categories
 
 csts = constants.ConstantsNamespace()
-PLOT_DIR = os.path.join(csts.RESULT_DIR_PATH, "explore_plots")
-os.makedirs(PLOT_DIR, exist_ok=True)
+EXPLORE_PLOT_DIR = os.path.join(csts.EXPLORE_DIR_PATH, "plots")
+os.makedirs(EXPLORE_PLOT_DIR, exist_ok=True)
 
 
 def get_survival_plot_dict(
@@ -192,9 +192,9 @@ def plot_survival_analysis_results(
     ax.grid(True, linestyle="--", alpha=0.7)
     plt.tight_layout()
     ax.set_xlim([0, 365])
-    plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_survival.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_survival.png"))
     ax.set_xlim([0, 50])
-    plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_survival_zommed.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_survival_zommed.png"))
     plt.close()
 
     # Initialize the cumulative density plot
@@ -213,9 +213,9 @@ def plot_survival_analysis_results(
     ax.grid(True, linestyle="--", alpha=0.7)
     plt.tight_layout()
     ax.set_xlim([0, 365])
-    plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_incidence.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_incidence.png"))
     ax.set_xlim([0, 50])
-    plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_incidence_zoomed.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_incidence_zoomed.png"))
     plt.close()
 
     # Initialize the probability mass at each even time
@@ -249,9 +249,9 @@ def plot_survival_analysis_results(
     plt.tight_layout()
     ax.set_ylim(bottom=0)
     ax.set_xlim([0, 365])
-    plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_mass.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_mass.png"))
     ax.set_xlim([0, 100])
-    plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_mass_zoomed.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_mass_zoomed.png"))
     plt.close()
 
 
@@ -299,7 +299,7 @@ def generate_sex_distribution_plot(
     ax.legend(loc="upper left")
     ax.grid(axis="y", alpha=0.75)
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, f"sex_distribution.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"sex_distribution.png"))
     plt.close()
 
 
@@ -349,7 +349,7 @@ def generate_age_distribution_plot(
     ax.grid(axis="y", alpha=0.75)
     ax.legend(loc="upper left")
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, f"age_distribution.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"age_distribution.png"))
     plt.close()
 
 
@@ -397,7 +397,7 @@ def generate_infection_type_plots(
                     current_pos = label.get_position()
                     label.set_position((current_pos[0], current_pos[1] - 0.05))
         plt.tight_layout()
-        plt.savefig(os.path.join(PLOT_DIR, f"{title_tag}_bar_plot.png"))
+        plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"{title_tag}_bar_plot.png"))
         plt.close()
 
 
@@ -433,5 +433,5 @@ def generate_infection_test_plot(
     ax.set_yticks([])
     ax.grid(axis="y", alpha=0.7)
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, f"inf_vs_no_inf_bar_plot.png"))
+    plt.savefig(os.path.join(EXPLORE_PLOT_DIR, f"inf_vs_no_inf_bar_plot.png"))
     plt.close()

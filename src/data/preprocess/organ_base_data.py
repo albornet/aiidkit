@@ -6,7 +6,7 @@ from src.data.data_utils import *
 # LONGITUDINAL DATA #
 #####################
 
-def get_any_organ_transplantation_event(
+def get_any_transplanted_organ(
     patient_ID: int,
     data: pd.DataFrame,
     include_kidneys: bool=True,
@@ -26,8 +26,8 @@ def get_any_organ_transplantation_event(
     if tpx_event.empty: return tpx_event
 
     return tpx_event.assign(
-        entity="Organ info (" + tpx_event["value"] + ")",
-        attribute="Transplantation event",
+        entity="Transplanted organ (" + tpx_event["value"] + ")",
+        attribute="Organ type",
     )
 
 
@@ -44,7 +44,7 @@ def get_any_organ_status_uptate(
     )
     if status_update.empty: return status_update
 
-    tpx_event = get_any_organ_transplantation_event(patient_ID, data)
+    tpx_event = get_any_transplanted_organ(patient_ID, data)
     if tpx_event.empty: return status_update
 
     # For PNF, date is not defined, so take the transplantation date
@@ -58,7 +58,7 @@ def get_any_organ_status_uptate(
     status_update = status_update.drop(columns="organid")
 
     return status_update.assign(
-        entity="Organ info (" + updated_organ + ")",
+        entity="Transplanted organ (" + updated_organ + ")",
         attribute="Status update",
     )
 
@@ -78,14 +78,14 @@ def get_any_organ_donor_type(patient_ID: int, data: pd.DataFrame) -> pd.DataFram
     ).rename(columns={"dontype": "value"})
     
     # Retrieve the organ(s) and date of donor_type based on "organid"
-    tpx_event = get_any_organ_transplantation_event(patient_ID, data)
+    tpx_event = get_any_transplanted_organ(patient_ID, data)
     if tpx_event.empty: return donor_type
     organid_to_tpx_info = tpx_event.set_index("organid")
     retrieved_organ = donor_type["organid"].map(organid_to_tpx_info["value"])
     retrieved_tpx_time = donor_type["organid"].map(organid_to_tpx_info["time"])
 
     return donor_type.assign(
-        entity="Organ info (" + retrieved_organ + ")",
+        entity="Transplanted organ (" + retrieved_organ + ")",
         attribute="Donor type",
         time=retrieved_tpx_time,
     )
@@ -105,18 +105,15 @@ def get_any_organ_resection_status(patient_ID: int, data: pd.DataFrame) -> pd.Da
         valid_categories=valid_categories,
     ).rename(columns={"resec_organtype": "value"})
     
-    tpx_event = get_any_organ_transplantation_event(patient_ID, data)
-    if tpx_event.empty: return resec_status
-
     # Retrieve the organ(s) and date of donor_type based on "organid"
-    tpx_event = get_any_organ_transplantation_event(patient_ID, data)
+    tpx_event = get_any_transplanted_organ(patient_ID, data)
     if tpx_event.empty: return resec_status
     organid_to_tpx_info = tpx_event.set_index("organid")
     retrieved_organ = resec_status["organid"].map(organid_to_tpx_info["value"])
     retrieved_tpx_time = resec_status["organid"].map(organid_to_tpx_info["time"])
     
     return resec_status.assign(
-        entity="Organ info (" + retrieved_organ + ")",
+        entity="Transplanted organ (" + retrieved_organ + ")",
         attribute="Resec status",
         time=retrieved_tpx_time,
     )
@@ -134,7 +131,7 @@ def pool_organ_base_data(
     """
     # Build longitudinal features dataframe
     kbl_longitudinals = concatenate_clinical_information([
-        get_any_organ_transplantation_event(patient_ID, organ_base_df),
+        get_any_transplanted_organ(patient_ID, organ_base_df),
         get_any_organ_status_uptate(patient_ID, organ_base_df),
         get_any_organ_donor_type(patient_ID, organ_base_df),
         get_any_organ_resection_status(patient_ID, organ_base_df),
@@ -143,7 +140,7 @@ def pool_organ_base_data(
     # Finalize patient dataframe
     patient_df = concatenate_clinical_information([kbl_longitudinals])
     patient_df = patient_df.drop_duplicates()
-    # patient_df = patient_df.assign(entity="Organ info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
+    # patient_df = patient_df.assign(entity="Transplanted organ info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
     patient_df = patient_df.sort_values(by=["time"])
     patient_df = patient_df[["entity", "attribute", "value", "time"]]
     

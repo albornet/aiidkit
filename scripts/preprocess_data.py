@@ -24,7 +24,7 @@ from tqdm.contrib.concurrent import process_map
 import argparse
 import src.constants as constants
 csts = constants.ConstantsNamespace()
-parser = argparse.ArgumentParser(description="Process some integers.")
+parser = argparse.ArgumentParser()
 parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
 parser.add_argument("-e", "--explore", action="store_true", help="Enable exploration mode")
 args = parser.parse_args()
@@ -49,34 +49,12 @@ def main():
     # Process some patients, using only one process, if DEBUG_FLAG is enabled
     if DEBUG_FLAG:
         for patient_ID in tqdm(patients_IDs[0:1000], "Creating patient records"):
+            print(f"Processing patient {patient_ID}")
             create_patient_record(patient_ID, data_dict)
     
     # Allow raw data file exploration, if EXPLORE_FLAG is enabled
     elif EXPLORE_FLAG:
-        pat_cst = data_dict[csts.CONSENT_SHEET]
-        pat_bl = data_dict[csts.PATIENT_BL_SHEET]
-        pat_psq = data_dict[csts.PATIENT_PSQ_SHEET]
-        pat_drg = data_dict[csts.PATIENT_DRUG_SHEET]
-        pat_stop = data_dict[csts.PATIENT_STOP_SHEET]
-        pat_inf = data_dict[csts.PATIENT_INFECTION_SHEET]
-        kid_bl = data_dict[csts.KIDNEY_BL_SHEET]
-        kid_fup = data_dict[csts.KIDNEY_FUP_SHEET]
-        org_base = data_dict[csts.ORGAN_BASE_SHEET]
-        print("To explore: pat_cst, pat_bl, pat_psq, pat_drg, pat_stop, pat_inf, kid_bl, kid_fup, org_base")
-        import ipdb; ipdb.set_trace()
-
-        # Generate various distribution plots
-        generate_sex_distribution_plot(pat_bl)
-        generate_age_distribution_plot(pat_bl, kid_bl)
-        generate_infection_type_plots(pat_inf)
-        generate_infection_test_plot(pat_inf)
-
-        # Generate various survival analysis plots
-        generate_survival_analysis_plots(pat_inf, pat_stop, kid_bl)
-
-        # Exploration enabled
-        import ipdb; ipdb.set_trace()
-        exit()
+        exploration_fn()
 
     # Process all patients using multiprocesing to create csv records
     else:
@@ -95,7 +73,10 @@ def main():
     print("Dataset created successfully")
 
 
-def create_patient_record(patient_ID: int, data_dict: pd.DataFrame) -> pd.DataFrame:
+def create_patient_record(
+    patient_ID: int,
+    data_dict: pd.DataFrame,
+) -> pd.DataFrame:
     """ Create a patient record from the raw data
     """
     # Only process patients who have given consent
@@ -110,24 +91,55 @@ def create_patient_record(patient_ID: int, data_dict: pd.DataFrame) -> pd.DataFr
             data_dict[csts.PATIENT_PSQ_SHEET],
             data_dict[csts.KIDNEY_BL_SHEET],
         ),
-        pool_patient_drug_data(patient_ID, data_dict[csts.PATIENT_DRUG_SHEET]),
+        pool_patient_drug_data(
+            patient_ID,
+            data_dict[csts.PATIENT_DRUG_SHEET],
+            csts.START_TIME_IMPUTATION_STRATEGY,
+            csts.STOP_TIME_IMPUTATION_STRATEGY,
+            csts.OTHER_DRUG_TYPE_MAPPING_STRATEGY,
+        ),
         pool_kidney_bl_data(patient_ID, data_dict[csts.KIDNEY_BL_SHEET]),
         pool_kidney_fup_data(patient_ID, data_dict[csts.KIDNEY_FUP_SHEET]),
         pool_organ_base_data(patient_ID, data_dict[csts.ORGAN_BASE_SHEET]),
         # pool_patient_stop_data(patient_ID, data_dict[csts.PATIENT_STOP_SHEET]),
         pool_patient_infection_data(patient_ID, data_dict[csts.PATIENT_INFECTION_SHEET]),
     ], ignore_index=True)
+
+    # Post-process the patient record
+    patient_df["time"] = pd.to_datetime(patient_df["time"], errors="coerce")
+    patient_df["time"] = patient_df["time"].dt.strftime("%Y-%m-%d")  # time is always a date
     patient_df = patient_df.drop_duplicates(subset=["attribute", "value", "time"])
-    patient_df = patient_df.sort_values(by=["time", "attribute"])
+    patient_df = patient_df.sort_values(by=["time", "entity", "attribute"])
 
     # Save the patient record to a CSV file
-    if not DEBUG_FLAG:
+    if 1:  # not DEBUG_FLAG:
         save_path = os.path.join(csts.PREPROCESSED_DIR_PATH, f"patient_{patient_ID}.csv")
         patient_df.to_csv(save_path, index=False)
 
-    # # Debug case
-    # if DEBUG_FLAG:
-    #     import ipdb; ipdb.set_trace()
+
+def exploration_fn(data_dict: pd.DataFrame):
+    """ Explore the raw data file
+    """
+    pat_cst = data_dict[csts.CONSENT_SHEET]
+    pat_bl = data_dict[csts.PATIENT_BL_SHEET]
+    pat_psq = data_dict[csts.PATIENT_PSQ_SHEET]
+    pat_drg = data_dict[csts.PATIENT_DRUG_SHEET]
+    pat_stop = data_dict[csts.PATIENT_STOP_SHEET]
+    pat_inf = data_dict[csts.PATIENT_INFECTION_SHEET]
+    kid_bl = data_dict[csts.KIDNEY_BL_SHEET]
+    kid_fup = data_dict[csts.KIDNEY_FUP_SHEET]
+    org_base = data_dict[csts.ORGAN_BASE_SHEET]
+    print("To explore: pat_cst, pat_bl, pat_psq, pat_drg, pat_stop, pat_inf, kid_bl, kid_fup, org_base")
+    import ipdb; ipdb.set_trace()
+
+    # Generate various distribution plots
+    generate_sex_distribution_plot(pat_bl)
+    generate_age_distribution_plot(pat_bl, kid_bl)
+    generate_infection_type_plots(pat_inf)
+    generate_infection_test_plot(pat_inf)
+
+    # Generate various survival analysis plots
+    generate_survival_analysis_plots(pat_inf, pat_stop, kid_bl)
 
 
 if __name__ == "__main__":

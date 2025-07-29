@@ -119,6 +119,7 @@ def get_centre_id(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """
     valid_categories = ["USZ", "USB", "CHUV", "BE", "HUG", "SG"]
     centreid = get_categorical_feature_by_key(patient_ID, data, "centreid", valid_categories)
+    centreid["centreid"] = centreid["centreid"].map(csts.REFERENCE_CENTER_NORMALIZATION_MAP)
     return centreid.rename(columns={"centreid": "Organ data entry centre"})
 
 def get_transplantation_type(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
@@ -285,7 +286,6 @@ def get_initial_dialysis(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     return dialysis_type.assign(attribute="Initial dialysis type")
 
 
-
 #########################
 # DATA POOLING FUNCTION #
 #########################
@@ -296,41 +296,64 @@ def pool_kidney_bl_data(
 ) -> pd.DataFrame:
     """ Get date, static, and longitudinal kidney baseline data for one patient
     """
-    # Build dates dataframe
-    kbl_dates = concatenate_clinical_information([
-        df.melt(var_name="attribute", value_name="time") for df in [
-            # get_donor_birth_date(patient_ID, kidney_bl_df),  # <- we already have donor age
+    # Entity: Transplant trocedure
+    transplant_procedure = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="time").assign(value="Occured") for df in [
             get_hospitalization_start_date(patient_ID, kidney_bl_df),
             get_transplantation_date(patient_ID, kidney_bl_df),
             get_hospitalization_end_date(patient_ID, kidney_bl_df),
         ]
-    ]).assign(value="Occured")
-    
-    # Build static features dataframe
-    kbl_statics = concatenate_clinical_information([
-        df.melt(var_name="attribute", value_name="value") for df in [
+    ] + [
+        df.melt(var_name="attribute", value_name="value").assign(time=pd.NaT) for df in [
             get_kidney_resection_status(patient_ID, kidney_bl_df),
             get_kidney_counter(patient_ID, kidney_bl_df),
             get_kidney_warm_ischemia_time(patient_ID, kidney_bl_df),
             get_kidney_cold_ischemia_time(patient_ID, kidney_bl_df),
             get_kidney_cold_ischemia_time_other_kidney(patient_ID, kidney_bl_df),
             get_kidney_warm_ischemia_time_primary(patient_ID, kidney_bl_df),
+            get_centre_id(patient_ID, kidney_bl_df),
+            get_transplantation_type(patient_ID, kidney_bl_df),
+        ]
+    ]).assign(entity="Transplant procedure")
+
+    # Entity: HLA mismatch
+    hla_mismatch = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="value") for df in [
             get_hla_a_mismatch(patient_ID, kidney_bl_df),
             get_hla_b_mismatch(patient_ID, kidney_bl_df),
             get_hla_dr_mismatch(patient_ID, kidney_bl_df),
             get_sum_hla_mismatch(patient_ID, kidney_bl_df),
+        ]
+    ]).assign(time=pd.NaT, entity="HLA mismatch")
 
+    # Entity: Donor demographics
+    donor_demographics = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="value") for df in [
             get_donor_sex(patient_ID, kidney_bl_df),
             get_donor_age(patient_ID, kidney_bl_df),
             get_donor_type(patient_ID, kidney_bl_df),
             get_donor_cause_of_death(patient_ID, kidney_bl_df),
             get_donor_blood_group(patient_ID, kidney_bl_df),
             get_donor_is_extended_pool(patient_ID, kidney_bl_df),
-            get_centre_id(patient_ID, kidney_bl_df),
-            get_transplantation_type(patient_ID, kidney_bl_df),
-            get_had_blood_transfusion_event(patient_ID, kidney_bl_df),
-            get_had_pregnancy_event(patient_ID, kidney_bl_df),
+        ]
+    ]).assign(time=pd.NaT, entity="Donor demographics")
 
+    # Entity: Receiver medical history
+    receiver_history = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="value").assign(time=pd.NaT) for df in [
+             get_had_blood_transfusion_event(patient_ID, kidney_bl_df),
+             get_had_pregnancy_event(patient_ID, kidney_bl_df),
+        ]
+    ] + [
+        get_initial_dialysis(patient_ID, kidney_bl_df),
+        get_immuno_test_hla_antibodies(patient_ID, kidney_bl_df),
+        get_etiology(patient_ID, kidney_bl_df),
+        get_etiology_histology_confirmation(patient_ID, kidney_bl_df),
+    ]).assign(entity="Receiver medical history")
+
+    # Entity: Receiver serology
+    serology_receiver = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="value") for df in [
             get_surface_antigen_for_hbv_receiver(patient_ID, kidney_bl_df),
             get_surface_antibody_for_hbv_receiver(patient_ID, kidney_bl_df),
             get_core_antibody_for_hbv_receiver(patient_ID, kidney_bl_df),
@@ -342,7 +365,12 @@ def pool_kidney_bl_data(
             get_antibody_for_vzv_receiver(patient_ID, kidney_bl_df),
             get_antibody_for_hsv_receiver(patient_ID, kidney_bl_df),
             get_antibody_for_trep_receiver(patient_ID, kidney_bl_df),
+        ]
+    ]).assign(time=pd.NaT, entity="Receiver serology")
 
+    # Entity: Donor serology
+    serology_donor = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="value") for df in [
             get_surface_antigen_for_hbv_donor(patient_ID, kidney_bl_df),
             get_surface_antibody_for_hbv_donor(patient_ID, kidney_bl_df),
             get_core_antibody_for_hbv_donor(patient_ID, kidney_bl_df),
@@ -354,21 +382,18 @@ def pool_kidney_bl_data(
             get_antibody_for_vzv_donor(patient_ID, kidney_bl_df),
             get_antibody_for_hsv_donor(patient_ID, kidney_bl_df),
         ]
-    ]).assign(time=pd.NaT)
-
-    # Build longitudinal features dataframe
-    kbl_longitudinals = concatenate_clinical_information([
-        get_initial_dialysis(patient_ID, kidney_bl_df),
-        get_immuno_test_hla_antibodies(patient_ID, kidney_bl_df),
-        get_etiology(patient_ID, kidney_bl_df),
-        get_etiology_histology_confirmation(patient_ID, kidney_bl_df),  # not sure if this one is important but why not
-    ])
+    ]).assign(time=pd.NaT, entity="Donor serology")
 
     # Finalize patient dataframe
-    patient_kbl_df = concatenate_clinical_information([kbl_dates, kbl_statics, kbl_longitudinals])
+    patient_kbl_df = concatenate_clinical_information([
+        transplant_procedure,
+        hla_mismatch,
+        donor_demographics,
+        receiver_history,
+        serology_receiver,
+        serology_donor,
+    ])
     patient_kbl_df = patient_kbl_df.drop_duplicates()
-    patient_kbl_df = patient_kbl_df.assign(entity="Kidney baseline info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
     patient_kbl_df = patient_kbl_df.sort_values(by=["time"])
-    patient_kbl_df = patient_kbl_df[["entity", "attribute", "value", "time"]]
-
-    return patient_kbl_df
+    
+    return patient_kbl_df[["entity", "attribute", "value", "time"]]

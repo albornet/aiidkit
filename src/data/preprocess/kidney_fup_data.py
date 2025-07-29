@@ -214,29 +214,33 @@ def pool_kidney_fup_data(
 ) -> pd.DataFrame:
     """ Get date, static, and longitudinal kidney follow-up data for one patient
     """
-    # Build paired dataframe (either time-paired or two static features)
-    kfup_paired = concatenate_clinical_information([
+    # Entity: Post-transplant lab results
+    post_tpx_labs = concatenate_clinical_information([
         get_insufficient_urine_level(patient_ID, kidney_fup_df),
         get_bkv_uremia_level(patient_ID, kidney_fup_df),
         get_protein_uria_level(patient_ID, kidney_fup_df),
-        get_early_allograft_dysfunction(patient_ID, kidney_fup_df),
-    ])
+        get_immuno_test_hla_antibodies(patient_ID, kidney_fup_df),
+    ]).assign(entity="Post-transplant lab results")
 
-    # Build longitudinal features dataframe
-    kfup_longitudinals = concatenate_clinical_information([
+    # Entity: Post-transplant complications
+    post_tpx_complications = concatenate_clinical_information([
+        get_early_allograft_dysfunction(patient_ID, kidney_fup_df),
         get_reason_for_graft_loss(patient_ID, kidney_fup_df),
         get_rejection_event(patient_ID, kidney_fup_df),
         get_allograft_disease_event(patient_ID, kidney_fup_df),
         get_transplant_related_complication_event(patient_ID, kidney_fup_df),
-        get_immuno_test_hla_antibodies(patient_ID, kidney_fup_df),
-        get_banff_results(patient_ID, kidney_fup_df),
-    ])
+    ]).assign(entity="Post-transplant complications")
+
+    # Entity: Biopsy results (Banff)
+    biopsy_results = get_banff_results(patient_ID, kidney_fup_df).assign(entity="Biopsy results (Banff)")
 
     # Finalize patient dataframe
-    patient_kfup_df = concatenate_clinical_information([kfup_paired, kfup_longitudinals])
+    patient_kfup_df = concatenate_clinical_information([
+        post_tpx_labs,
+        post_tpx_complications,
+        biopsy_results,
+    ])
     patient_kfup_df = patient_kfup_df.drop_duplicates()
-    patient_kfup_df = patient_kfup_df.assign(entity="Kidney follow-up info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
     patient_kfup_df = patient_kfup_df.sort_values(by=["time"])
-    patient_kfup_df = patient_kfup_df[["entity", "attribute", "value", "time"]]
 
-    return patient_kfup_df
+    return patient_kfup_df[["entity", "attribute", "value", "time"]]

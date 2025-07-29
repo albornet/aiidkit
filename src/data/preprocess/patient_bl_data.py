@@ -113,6 +113,7 @@ def get_reference_centre(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Center of reference at time of transplant
     """
     refcenter = get_categorical_feature_by_key(patient_ID, data, "refcentre", ["USZ", "USB", "CHUV", "BE", "HUG", "SG"])
+    refcenter["refcentre"] = refcenter["refcentre"].map(csts.REFERENCE_CENTER_NORMALIZATION_MAP)
     return refcenter.rename(columns={"refcentre": "Receiver transplant centre"})
 
 def get_blood_group(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
@@ -125,7 +126,7 @@ def get_past_immuno_treatment(patient_ID: int, data: pd.DataFrame) -> pd.DataFra
     """ Past immunosuppressive treatment (including systemic corticosteroids)
     """
     immu_treat = get_categorical_feature_by_key(patient_ID, data, "istreat", ["No", "Yes", "Unknown"])
-    return immu_treat.rename(columns={"istreat": "Past immunosuppr. treatment"})
+    return immu_treat.rename(columns={"istreat": "Past immunosuppresssion treatment"})
 
 def get_drug_addiction(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Any pre-transplant drug addiction, like heroin, cocain, and so on
@@ -304,10 +305,10 @@ def pool_patient_bl_data(
     patient_psq_df: pd.DataFrame,
     kidney_bl_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """ Get date, static, and longitudinal kidney baseline data for one patient
+    """ Get date, static, and longitudinal patient baseline data for one patient
     """
-    # Build static features dataframe
-    pbl_statics = concatenate_clinical_information([
+    # Entity: Receiver demographics
+    receiver_demographics = concatenate_clinical_information([
         df.melt(var_name="attribute", value_name="value") for df in [
             get_age_at_transplantation(patient_ID, patient_bl_df, kidney_bl_df),
             get_sex(patient_ID, patient_bl_df),
@@ -316,17 +317,17 @@ def pool_patient_bl_data(
             get_height(patient_ID, patient_bl_df),
             get_bmi(patient_ID, patient_bl_df),
             get_household_income(patient_ID, patient_bl_df),
-            get_reference_centre(patient_ID, patient_bl_df),
-            get_systolic_blood_pressure(patient_ID, patient_bl_df),
-            get_diastolic_blood_pressure(patient_ID, patient_bl_df),
             get_blood_group(patient_ID, patient_bl_df),
-            get_drug_addiction(patient_ID, patient_bl_df),
-            get_past_immuno_treatment(patient_ID, patient_bl_df),
         ]
-    ]).assign(time=pd.NaT)
+    ]).assign(time=pd.NaT, entity="Receiver demographics")
     
-    # Build timed features with blood (or so) test results
-    pbl_blood_test_results = concatenate_clinical_information([
+    # Entity: Transplant procedure (for transplant center)
+    transplant_procedure = get_reference_centre(patient_ID, patient_bl_df)\
+        .melt(var_name="attribute", value_name="value")\
+        .assign(time=pd.NaT, entity="Transplant procedure")
+
+    # Entity: Receiver baseline lab results
+    baseline_labs = concatenate_clinical_information([
         get_hba1c_level(patient_ID, patient_bl_df),
         get_hba1c_level_test(patient_ID, patient_bl_df),
         get_glucose_level(patient_ID, patient_bl_df),
@@ -335,10 +336,17 @@ def pool_patient_bl_data(
         get_ldl_cholesterol_level(patient_ID, patient_bl_df),
         get_hdl_cholesterol_level(patient_ID, patient_bl_df),
         get_total_cholesterol_level(patient_ID, patient_bl_df),
-    ])
+        get_systolic_blood_pressure(patient_ID, patient_bl_df).melt(var_name="attribute", value_name="value").assign(time=pd.NaT),
+        get_diastolic_blood_pressure(patient_ID, patient_bl_df).melt(var_name="attribute", value_name="value").assign(time=pd.NaT),
+    ]).assign(entity="Receiver baseline lab results")
 
-    # Build medical history events
-    pbl_medical_history = concatenate_clinical_information([
+    # Entity: Receiver medical history
+    medical_history = concatenate_clinical_information([
+        df.melt(var_name="attribute", value_name="value").assign(time=pd.NaT) for df in [
+            get_drug_addiction(patient_ID, patient_bl_df),
+            get_past_immuno_treatment(patient_ID, patient_bl_df),
+        ]
+    ] + [
         get_previous_metabolic_endocrine_diseases(patient_ID, patient_bl_df),
         get_previous_skin_cancer(patient_ID, patient_bl_df),
         get_previous_non_skin_cancer(patient_ID, patient_bl_df),
@@ -346,13 +354,16 @@ def pool_patient_bl_data(
         get_previously_transplanted_organ(patient_ID, patient_bl_df),
         get_previous_infectious_diseases(patient_ID, patient_bl_df),
         get_previous_other_diagnose_events(patient_ID, patient_bl_df),
-    ])
+    ]).assign(entity="Receiver medical history")
 
     # Finalize patient dataframe
-    patient_df = concatenate_clinical_information([pbl_statics, pbl_blood_test_results, pbl_medical_history])
+    patient_df = concatenate_clinical_information([
+        receiver_demographics,
+        transplant_procedure,
+        baseline_labs,
+        medical_history,
+    ])
     patient_df = patient_df.drop_duplicates()
-    patient_df = patient_df.assign(entity="Patient baseline info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
     patient_df = patient_df.sort_values(by=["time"])
-    patient_df = patient_df[["entity", "attribute", "value", "time"]]
-
-    return patient_df
+    
+    return patient_df[["entity", "attribute", "value", "time"]]

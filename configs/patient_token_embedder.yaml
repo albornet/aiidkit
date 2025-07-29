@@ -1,6 +1,6 @@
 # Data and model arguments
 LOAD_HUGGINGFACE_DATASET: false
-ORIGINAL_MODEL_ID: answerdotai/ModernBERT-base
+ORIGINAL_MODEL_ID: answerdotai/ModernBERT-large
 ORIGINAL_MODEL_TASK: masked  # causal, masked
 ORIGINAL_MODEL_PARAMS:  # any parameter to modify from the original model
   output_hidden_states: true
@@ -16,19 +16,29 @@ DEFAULT_BASE_VOCAB:
   "[EOS]": 3
   "[UNK]": 4
 
-# Training arguments
+# Argument for HuggingFace's trainer
 TRAINING_ARGUMENTS:
-  eval_strategy: steps
-  save_strategy: steps
-  save_total_limit: 1
+  output_dir: results/pretraining
+  logging_dir: results/pretraining/logs
   logging_steps: 10
-  eval_steps: 250
-  save_steps: 250
-  warmup_steps: 1000
-  learning_rate: 0.0001
+  warmup_ratio: 0.1  # warmup_steps: 1000?
+  num_train_epochs: 100
+  per_device_train_batch_size: 24
+  gradient_accumulation_steps: 1  # try to amount to 32 (or more?)
+  learning_rate: 1.0e-4  # careful! 1e-4 will be read as a string
   weight_decay: 0.01
   bf16: true
-  num_train_epochs: 100
-  per_device_train_batch_size: 32
+  
+  # Evaluation settings
   per_device_eval_batch_size: 32
-  gradient_accumulation_steps: 1  # try to amount to 32
+  eval_strategy: steps
+  save_strategy: steps
+  eval_steps: 250
+  save_steps: 250
+  save_total_limit: 1
+
+# Parameters for the custom clustering evaluation
+EVALUATION_ARGUMENTS:
+  optuna_trials: 25
+  infection_days_low: 0
+  infection_days_high: 300

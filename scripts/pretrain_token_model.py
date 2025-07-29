@@ -1,4 +1,3 @@
-import os
 import yaml
 import torch
 from numpy import ndarray
@@ -6,26 +5,17 @@ from datasets import DatasetDict
 from transformers import Trainer, TrainingArguments
 from transformers.trainer_callback import EarlyStoppingCallback
 
-from src.model.patient_token_embedder import (
-    PatientTokenEmbeddingModel,
-    PatientDataCollatorForLanguageModelling,
-)
-from src.model.evaluate_models import (
-    preprocess_logits_for_metrics,
-    CustomMetricComputer,
-    # PopPlotCallback,
-    # LogCombinedClusterScoresCallback,
-)
-from src.data.process.process_utils import (
-    build_huggingface_patient_dataset,
-    get_formatted_patient_dataset,
-)
+from src.model.patient_token_embedder import PatientTokenEmbeddingModel, PatientDataCollatorForLanguageModelling
+from src.model.evaluate_models import preprocess_logits_for_metrics, CustomEmbeddingEvaluator
+from src.data.process.build_dataset import get_formatted_patient_dataset
 
 import src.constants as constants
 csts = constants.ConstantsNamespace()
+
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
+parser.add_argument("-p", "--pretrain_config_path", default="configs/patient_token_embedder.yaml", help="Path to the pretraining (masked LM) configuration file")
 args = parser.parse_args()
 DEBUG_FLAG = args.debug
 
@@ -34,13 +24,12 @@ def main():
     """ Train a patient embedding model with MLM (or causal LM)
     """
     # Load model configuration
-    training_cfg_path = os.path.join(csts.TRAINING_CONFIG_DIR_PATH, "patient_token_embedder.yaml")
-    with open(training_cfg_path, "r") as f: training_cfg = yaml.safe_load(f)
+    with open(args.pretrain_config_path, "r") as f: training_cfg = yaml.safe_load(f)
     
     # Set up trainer with a model and a dataset
     dataset, vocabs = load_formatted_dataset(training_cfg)
     model, data_collator = load_model_and_data_collator(training_cfg, vocabs)
-    trainer = load_trainer(model, dataset, training_cfg, data_collator)
+    trainer = load_trainer_for_token_embedding(model, dataset, training_cfg, data_collator)
 
     # Train the model
     trainer.train()
@@ -52,16 +41,11 @@ def load_formatted_dataset(
 ) -> tuple[DatasetDict, dict[str, int], dict[str, ndarray]]:
     """ Load a dataset formatted for huggingface's trainer object
     """
-    # Raw dataset from patient csvs, but in huggingface format
-    build_huggingface_patient_dataset(
-        input_data_dir=csts.PREPROCESSED_DIR_PATH,
-        output_data_dir=csts.HUGGINGFACE_DIR_PATH,
-    )
-
     # Dataset with formatted times and values
     dataset, _, vocabs = get_formatted_patient_dataset(
         huggingface_dataset_path=csts.HUGGINGFACE_DIR_PATH,
         base_vocab=training_cfg["DEFAULT_BASE_VOCAB"],
+        load_huggingface_dataset=training_cfg["LOAD_HUGGINGFACE_DATASET"],
     )
 
     return dataset, vocabs
@@ -100,7 +84,7 @@ def load_model_and_data_collator(
     return model, data_collator
 
 
-def load_trainer(
+def load_trainer_for_token_embedding(
     model: PatientTokenEmbeddingModel,
     dataset: DatasetDict,
     training_cfg: dict[str, str],
@@ -115,14 +99,22 @@ def load_trainer(
     
     # Load training arguments
     training_arguments = TrainingArguments(
-        output_dir=csts.RESULT_DIR_PATH,
-        logging_dir=os.path.join(csts.RESULT_DIR_PATH, "logs"),
         remove_unused_columns=False,
         load_best_model_at_end=True,
         metric_for_best_model="silhouette_score",  # computed from validation set
         greater_is_better=True,
-        report_to="wandb",  # if not DEBUG_FLAG else "none",
+        report_to="wandb" if not DEBUG_FLAG else "none",
         **cfg_training_args,
+    )
+
+    # Define a custom evaluator for a token embedding model
+    cfg_eval_args: dict = training_cfg["EVALUATION_ARGUMENTS"]
+    metric_computer = CustomEmbeddingEvaluator(
+        eval_dataset=dataset["validation"],
+        embedding_mode="token",
+        optuna_trials=cfg_eval_args["optuna_trials"],
+        infection_days_low=cfg_eval_args["infection_days_low"],
+        infection_days_high=cfg_eval_args["infection_days_high"],
     )
 
     # Define trainer object
@@ -133,12 +125,10 @@ def load_trainer(
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
         data_collator=data_collator,
-        compute_metrics=CustomMetricComputer(dataset["validation"]),
+        compute_metrics=metric_computer,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics if causal else None,
         callbacks=[
             EarlyStoppingCallback(early_stopping_patience=5),
-            # PopPlotCallback(),  # plots cannot be serialized in the checkpoints
-            # LogCombinedClusterScoresCallback(),
         ],
     )
 

@@ -12,7 +12,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.data.data_collator import DataCollatorMixin
 from torch.nn.utils.rnn import pad_sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union, Optional
 from src.model.model_utils import PatientEmbeddingLayer
 
@@ -136,7 +136,6 @@ class PatientTokenEmbeddingModel(nn.Module):
                 unflattened[attention_mask.bool()] = last_hidden_state
                 outputs.hidden_states = (unflattened,)
         
-        # outputs["infection_labels"] = kwargs.get("infection_labels")
         return outputs
         
 
@@ -144,10 +143,6 @@ class PatientTokenEmbeddingModel(nn.Module):
 class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
     """ Data collator used for the PatientEmbedding-based language model
         Modified from transformers.data.data_collator.py
-    
-    Args:
-        mlm (bool): whether or not to use masked language modeling
-        mlm_probability(float): probability with which tokens are mask randomly
     """
     mlm: bool=True
     pad_id: int=0
@@ -159,81 +154,44 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
     num_mlm_labels: Optional[int]=None
     mlm_probability: float=0.15
     return_tensors: str="pt"
-    
-    def torch_call(
-        self,
-        samples: list[dict[str, torch.Tensor]]
-    ) -> dict[str, torch.Tensor]:
-        """ Collate patient embedding samples and create mlm labels for training
+    features_to_pad: list[str] = field(
+        default_factory=lambda: ["entity", "attribute", "value_binned", "time"]
+    )
+    task_label_names: Optional[list[str]] = field(
+        default_factory=lambda: ["infection_labels", "infection_events"],
+        metadata={"help": "The list of keys to treat as labels."}
+    )
+
+    def _separate_labels(self, samples: list[dict]) -> tuple[list[dict], dict]:
+        """ Separate non-feature labels (e.g., for classification) from the samples
         """
-        # Take labels out for batching
-        label_names = [n for n in samples[0].keys() if "label" in n]
-        external_labels = {n: [s.pop(n) for s in samples] for n in label_names}
-        
-        # Control each sample for sequence length
-        effective_num_token_max = self.num_tokens_max - 2   # for bos and eos tokens
-        for batch_idx, _ in enumerate(samples):
-            seq_len = next(iter(samples[batch_idx].values())).shape[0]
-            if seq_len > effective_num_token_max:
-                
-                # Randomly select a starting index for slicing
-                start_idx = random.randint(0, seq_len - effective_num_token_max)
-                end_idx = start_idx + effective_num_token_max
-                
-                # Slice all tensors in the sample by keys (with the same slicing)
-                for data_key in samples[batch_idx]:
-                    random_slice = samples[batch_idx][data_key][start_idx:end_idx]
-                    samples[batch_idx][data_key] = random_slice
-        
-        # Add token ids for beginning and end of sequence
-        for batch_idx, _ in enumerate(samples):
-            for data_key in samples[batch_idx]:
-                to_enclose = samples[batch_idx][data_key]
-                enclosed = self.add_bos_eos_ids(to_enclose, data_key)
-                samples[batch_idx][data_key] = enclosed
+        # Identify which of the specified label names are present in the batch
+        present_keys = samples[0].keys()
+        keys_to_extract = [key for key in self.task_label_names if key in present_keys]
+        if not self.task_label_names or not samples: return samples, {}
+        if not keys_to_extract: return samples, {}
 
-        # Pad all sequences needed for the embedding layer
-        padded_sequences = {}
-        features_to_pad = ["entity", "attribute", "value_binned", "time"]
-        for key in features_to_pad:
-            sequences = [s[key] for s in samples]
-            padding_value = 0.0 if key == 'time' else float(self.pad_id)
-            padded_sequences[key] = pad_sequence(
-                sequences, batch_first=True, padding_value=padding_value
-            )
-        attention_mask = (padded_sequences["entity"] != self.pad_id).long()
-
-        # The language modeling task is on the 'value_binned' feature
-        values_to_predict = padded_sequences["value_binned"]
-
-        # Mask input and keep masked value labels for masked language modelling
-        if self.mlm:
-            assert self.num_mlm_labels is not None, "Define the number of labels for mlm"
-            masked_values, labels = self.masked_modelling(values_to_predict)
-            padded_sequences["value_binned"] = masked_values
-        
-        # Compute labels from unmasked sequences for causal language modelling
-        else:
-            labels = self.causal_modelling(values_to_predict)
-
-        # Assemble the final batch as the model's forward() method expects
-        batch = {
-            "input_dict": padded_sequences,
-            "labels": labels,
-            "attention_mask": attention_mask,
+        # Extract the labels by popping them out of each sample
+        external_labels = {
+            key: [s.pop(key) for s in samples] for key in keys_to_extract
         }
 
-        # Put external labels back in, after all batch processing happened
-        for label_name in external_labels:
-            batch[label_name] = external_labels[label_name]
+        return samples, external_labels
 
-        return batch
+    def _truncate_sequences(self, samples: list[dict]) -> list[dict]:
+        """ Truncate samples longer than the maximum allowed sequence length
+        """
+        effective_max_len = self.num_tokens_max - 2  # for bos and eos tokens
+        for i, sample in enumerate(samples):
+            seq_len = next(iter(sample.values())).shape[0]
+            if seq_len > effective_max_len:
+                start_idx = random.randint(0, seq_len - effective_max_len)
+                end_idx = start_idx + effective_max_len
+                samples[i] = {key: val[start_idx:end_idx] for key, val in sample.items()}
         
-    def add_bos_eos_ids(
-        self,
-        sequence: torch.Tensor,
-        data_key: str,
-    ) -> torch.Tensor:
+        return samples
+
+    def _add_bos_eos_ids(self, sequence: torch.Tensor, data_key: str) -> torch.Tensor:
         """ Add bos and eos token ids or first and last time to a sequence
             given the data it contains
         """
@@ -243,8 +201,63 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
             to_add = [torch.tensor([self.bos_id]), torch.tensor([self.eos_id])]
         
         return torch.cat([to_add[0], sequence, to_add[-1]], dim=0)
+        
+    def _add_special_tokens(self, samples: list[dict]) -> list[dict]:
+        """ For now, only add BOS and EOS tokens to each sequence in all samples
+        """
+        for i, sample in enumerate(samples):
+            samples[i] = {k: self._add_bos_eos_ids(v, k) for k, v in sample.items()}
+        
+        return samples
+
+    def _pad_batch(self, samples: list[dict]) -> tuple[dict, torch.Tensor]:
+        """ Pad all sequences in the batch to the same length
+        """
+        padded_batch = {}
+        for key in self.features_to_pad:
+            sequences = [s[key] for s in samples]
+            padding_value = 0.0 if key == 'time' else float(self.pad_id)
+            padded_batch[key] = pad_sequence(sequences, batch_first=True, padding_value=padding_value)
+        
+        attention_mask = (padded_batch["entity"] != self.pad_id).long()
+        
+        return padded_batch, attention_mask
     
-    def masked_modelling(
+    def _preprocess_batch(self, samples: list[dict]) -> tuple[dict, torch.Tensor]:
+        """ Pipeline to truncate, encapsulate, pad samples, and compute attention masks
+        """
+        samples = self._truncate_sequences(samples)
+        samples = self._add_special_tokens(samples)
+        padded_batch, attention_mask = self._pad_batch(samples)
+        
+        return padded_batch, attention_mask
+
+    def torch_call(self, samples: list[dict]) -> dict:
+        """ Collate patient embedding samples and create labels for LM training
+        """
+        # Preprocess the input samples
+        samples, external_labels = self._separate_labels(samples)
+        padded_batch, attention_mask = self._preprocess_batch(samples)
+
+        # Prepare labels for the language modeling task
+        values_to_predict = padded_batch["value_binned"]
+        if self.mlm:
+            masked_values, labels = self._masked_modelling(values_to_predict)
+            padded_batch["value_binned"] = masked_values
+        else:
+            labels = self._causal_modelling(values_to_predict)
+
+        # Assemble the final batch
+        batch = {
+            "input_dict": padded_batch,
+            "labels": labels,
+            "attention_mask": attention_mask,
+        }
+        batch.update(external_labels)
+
+        return batch
+    
+    def _masked_modelling(
         self,
         inputs: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -271,7 +284,7 @@ class PatientDataCollatorForLanguageModelling(DataCollatorMixin):
         
         return inputs, labels
     
-    def causal_modelling(
+    def _causal_modelling(
         self,
         inputs: torch.Tensor,
     ) -> torch.Tensor:

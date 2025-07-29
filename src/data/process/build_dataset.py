@@ -5,6 +5,7 @@ from tqdm.contrib.concurrent import process_map
 from collections import defaultdict
 from sklearn.model_selection import train_test_split
 from datasets import Dataset, DatasetDict, concatenate_datasets
+from src.data.process.infection_labels import get_all_infection_events
 import src.constants as constants
 csts = constants.ConstantsNamespace()
 
@@ -58,7 +59,7 @@ def get_formatted_patient_dataset(
     # Format data sequences as torch tensors
     dataset.set_format(
         type="torch",
-        columns=["entity", "attribute", "value_binned", "time", "infection_labels"],
+        columns=["entity", "attribute", "value_binned", "time", "infection_events"],
     )
 
     # (TEST) For validation data, keep only the data samples until transplantation day (i.e. time <= 0)
@@ -77,8 +78,11 @@ def build_huggingface_patient_dataset(
     """ Build a huggingface dataset from individual patient csv files
     """ 
     # Create list of patient dictionaries read from patient csv files
-    csv_paths = [str(p) for p in Path(input_data_dir).rglob("patient_*.csv")]
-    data = process_map(process_csv, csv_paths, max_workers=8, chunksize=100, desc="Reading patient files")
+    patient_csv_paths = [str(p) for p in Path(input_data_dir).rglob("patient_*.csv")]
+    data = process_map(
+        process_patient_csv, patient_csv_paths, max_workers=8, chunksize=100,
+        desc="Reading patient files",
+    )
 
     # Create train, validation, and test splits by patient (70% // 15% // 15%)
     train_data, valtest_data = train_test_split(data, test_size=0.3, random_state=1)
@@ -121,38 +125,29 @@ def filter_by_time(
     return sample
 
 
-def process_csv(file_path):
+def process_patient_csv(patient_csv_path: str):
     """ Function to read a patient csv file to a dictionary of input and labels
     """
-    df = pd.read_csv(file_path)
+    # Load patient data as a pandas dataframe
+    patient_df = pd.read_csv(patient_csv_path)
     
-    # Fill-in time for static values using the transplantation date
-    df["time"] = pd.to_datetime(df["time"])
-    tpx_time = df.loc[df["attribute"] == "Transplantation event", "time"].iloc[0]
-    df["time"] = df["time"].fillna(tpx_time)
+    # Fill-in time for static values using the first transplantation date
+    patient_df["time"] = pd.to_datetime(patient_df["time"])
+    tpx_event_mask = patient_df["attribute"] == "Transplantation event"
+    first_tpx_time = patient_df.loc[tpx_event_mask, "time"].iloc[0]
+    patient_df["time"] = patient_df["time"].fillna(first_tpx_time)
 
     # Normalize time as the difference of days with the transplantation date
-    df["time"] = (df["time"] - tpx_time).dt.days
-    df = df.sort_values("time").reset_index(drop=True)  # .astype(str)
+    patient_df["time"] = (patient_df["time"] - first_tpx_time).dt.days
+    patient_df = patient_df.sort_values("time").reset_index(drop=True)  # .astype(str)
 
     # Handle mixed-type and NaN values (types are added later)
-    df = df.dropna(subset=["value", "attribute"])
-    df["value"] = df["value"].astype(str)
-
-    # Compute patient labels as any clinically relevant infection occured
-    clinically_relevant_infs = df.loc[
-        df["entity"].str.contains("infection", case=False)
-        & (df["attribute"] == "Clinically relevant")
-        & (df["value"] == "True")
-    ]
-    infection_labels = {
-        "infection_time": clinically_relevant_infs["time"].tolist(),
-        "infection_type": clinically_relevant_infs["entity"].tolist()
-    }
+    patient_df = patient_df.dropna(subset=["value", "attribute"])
+    patient_df["value"] = patient_df["value"].astype(str)
 
     # Join input features and infection labels into a sample dictionary
-    sample = df[["entity", "attribute", "value", "time"]].to_dict(orient="list")
-    sample.update({"infection_labels": infection_labels})
+    sample = patient_df[["entity", "attribute", "value", "time"]].to_dict(orient="list")
+    sample.update({"infection_events": get_all_infection_events(patient_df)})
     
     return sample
 
