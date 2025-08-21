@@ -1,144 +1,197 @@
+import wandb
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from transformers import TrainerState, TrainerControl, TrainingArguments
+from transformers.trainer_callback import TrainerCallback, EarlyStoppingCallback
 
 
-class PatientEmbeddingLayer(nn.Module):
-    def __init__(
-        self,
-        embedding_dim: int,
-        vocabs: dict[str, dict[str, int]],
-    ):
-        """ Layer to embed patient data:
-            - Entities, attributes, and values are embedded via learned vocabs
-            - Times are embedded using rotary embeddings
-            - Final embedding is the sum of all component embeddings
+def preprocess_logits_for_metrics(logits, labels):
+    """
+    Align logits and labels for metric computation (useful for causal language models)
+    """
+    # The first element of the tuple is the prediction scores
+    if isinstance(logits, tuple): logits = logits[0]
 
-            Args:
-                embedding_dim: output dimension of the embeddings
-                vocabs: vocabs for text data
-        """
-        super().__init__()
-        self.vocabs = vocabs
-        self.embedding_dim = embedding_dim
-
-        # Create embedding layers for each vocabulary
-        self.token_embedding_dict = nn.ModuleDict({
-            key: nn.Embedding(len(vocab), embedding_dim)
-            for key, vocab in vocabs.items()
-        })
-
-        # Rotary embedding for time
-        self.time_embedding = TimeEmbedding(embedding_dim)
-
-    def forward(self, **kwargs) -> torch.Tensor:
-        """ Forward pass for the patient embedding layer
-
-            Args:
-                kwargs: A dictionary of input tensors
-                - Expects keys "entity", "attribute", "value_binned", "time"
-                - Each value is a tensor of shape (batch_size, seq_len)
-
-            Returns:
-                Combined patient embedding tensor
-        """
-        # Check input arguments
-        if not all(key in kwargs for key in self.token_embedding_dict):
-            raise KeyError(f"Required inputs: {list(self.token_embedding_dict.keys())}")
-        if "time" not in kwargs:
-            raise KeyError("Required input: time")
-        
-        # Sum the embeddings from all vocabulary-based features
-        token_embeddings = sum(
-            self.token_embedding_dict[key](sequence)
-            for key, sequence in kwargs.items()
-            if key in self.token_embedding_dict
-        )
-
-        # Apply time embeddings using the time input
-        time_embeddings = self.time_embedding(kwargs["time"])
-
-        return token_embeddings + time_embeddings
+    # For causal LM, last logit not needed for prediction and first label not predicted
+    return logits[:, :-1, :].argmax(dim=-1), labels[:, 1:]
 
 
 class TimeEmbedding(nn.Module):
-    """ Creates a sinusoidal time embedding for a tensor of integers.
+    """
+    Create a sinusoidal time embedding for a tensor of integers.
     """
     def __init__(
         self,
         embedding_dim: int,
+        dropout: float=0.1,
         time_scale: int=10000,
     ):
         super().__init__()
         if embedding_dim % 2 != 0:
             raise ValueError("Embedding dimension must be even")
+        self.dropout = nn.Dropout(p=dropout)
         self.half_dim = embedding_dim // 2
         self.ratio = math.log(time_scale) / self.half_dim
 
-    def forward(self, times: torch.Tensor) -> torch.Tensor:
-        """ Args: times: tensor of any shape containing integer time differences
-            Returns: tensor of shape (*days_tensor.shape, embedding_dim)
+    def forward(self, x: torch.Tensor, times: torch.Tensor) -> torch.Tensor:
+        """
+        Add time embedding to the input tensor, with dropout
+
+        Args:
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
+            times: Tensor, shape [batch_size, seq_len]
         """
         freq_indices = torch.arange(self.half_dim, device=times.device)
         times_scaled = times.unsqueeze(-1) * torch.exp(-self.ratio * freq_indices)
-        embeddings = torch.cat([torch.sin(times_scaled), torch.cos(times_scaled)], dim=-1)
+        time_embeddings = torch.cat([torch.sin(times_scaled), torch.cos(times_scaled)], dim=-1)
+        
+        return self.dropout(x + time_embeddings)
 
-        return embeddings
 
-
-def test_time_embedding_visualization():
-    """ Tests and visualizes the TimeEmbedding layer
+class PositionalEncoding(nn.Module):
     """
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    from sklearn.manifold import TSNE
-    print("Running TimeEmbedding visualization test...")
+    Encode token position using sines and cosines of different frequencies
+    """
+    def __init__(
+        self,
+        embedding_dim: int,
+        dropout: float=0.1,
+        max_len: int=1000,  # in AIIDKIT data, longest sequence has 843 events
+    ):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
 
-    # Test parameters
-    embedding_dim = 512
-    time_range_start = -10000
-    time_range_end = 10000
-    step = 25  # use a step to avoid too many points, which slows down t-SNE
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embedding_dim, 2) * (-math.log(10000.0) / embedding_dim))
+        
+        pe = torch.zeros(max_len, 1, embedding_dim)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        
+        self.register_buffer("pe", pe.transpose(0, 1))  # shape [1, max_len, embedding_dim]
 
-    # Generate time embeddings
-    time_embedding_layer = TimeEmbedding(embedding_dim)
-    time_inputs = torch.arange(time_range_start, time_range_end + 1, step).float()
-    with torch.no_grad():  # no need to track gradients
-        embeddings = time_embedding_layer(time_inputs)
-    
-    # Reduce dimensionality with t-SNE
-    n_components = 3
-    tsne = TSNE(n_components=n_components, perplexity=30, max_iter=5000)
-    reduced_embeddings = tsne.fit_transform(embeddings.numpy())
-    
-    # Plot the results
-    plt.style.use("seaborn-v0_8-whitegrid")
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(projection="3d" if n_components > 2 else "2d")
-    scatter = ax.scatter(
-        reduced_embeddings[:, 0],
-        reduced_embeddings[:, 1],
-        reduced_embeddings[:, 2] if n_components > 2 else None,
-        s=10,
-        c=time_inputs.numpy(),
-        cmap="viridis",
-        alpha=0.8,
-    )
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Add positional encoding to the input tensor, with dropout
 
-    # Save polished figure
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label("Time Value", fontsize=12, weight="bold")
-    ax.set_title(
-        f"t-SNE Visualization of Time Embeddings (Dim={embedding_dim})", 
-        fontsize=16, 
-        weight="bold"
-    )
-    ax.set_xlabel("t-SNE Dimension 1", fontsize=12)
-    ax.set_ylabel("t-SNE Dimension 2", fontsize=12)
-    if n_components > 2:
-        ax.set_zlabel("t-SNE Dimension 3", fontsize=12)
-    plt.savefig("time_embedding_tsne.png", dpi=300, bbox_inches="tight")
+        Args:
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
+        """
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
 
 
-if __name__ == "__main__":
-    test_time_embedding_visualization()
+class FocalLoss(nn.Module):
+    """
+    Implemented with Gemini from the paper 'Focal Loss for Dense Object Detection'
+
+    It is a dynamically scaled cross-entropy loss, where the scaling factor
+    decays to zero as confidence in the correct class increases. This helps
+    focus training on hard, misclassified examples.
+
+    Args:
+        gamma (float): The focusing parameter. A higher value gives more weight
+            to hard-to-classify examples. Default: 2.0
+        alpha (Optional[torch.Tensor]): A manual rescaling weight given to each
+            class. If given, it has to be a Tensor of size C (number of classes)
+        reduction (str): Specifies the reduction to apply to the output:
+            'none' | 'mean' | 'sum'. Default: 'mean'
+    """
+    def __init__(self, gamma=2.0, alpha=None, reduction="mean"):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.reduction = reduction
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            inputs (torch.Tensor): The model's raw logits, shape (N, C)
+            targets (torch.Tensor): The ground truth labels shape (N,)
+        """
+        # Calculate the cross-entropy loss, but without reduction
+        ce_loss = F.cross_entropy(inputs, targets, reduction="none")
+
+        # Calculate the Focal Loss
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt)**self.gamma * ce_loss
+
+        # Apply alpha weighting if provided
+        if self.alpha is not None:
+            if self.alpha.device != focal_loss.device:
+                self.alpha = self.alpha.to(focal_loss.device)
+
+            # Gather the alpha values corresponding to the targets
+            alpha_t = self.alpha.gather(0, targets)
+            focal_loss = alpha_t * focal_loss
+
+        # Apply the specified reduction
+        if self.reduction == "mean":
+            return focal_loss.mean()
+        elif self.reduction == "sum":
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+
+class WarmupEarlyStoppingCallback(EarlyStoppingCallback):
+    """
+    An EarlyStoppingCallback that disables early stopping for some warm-up steps
+    """
+    def __init__(self, warmup_steps: int, early_stopping_patience: int = 1, early_stopping_threshold: float = 0.0):
+        # Initialize the parent class with its parameters
+        super().__init__(early_stopping_patience, early_stopping_threshold)
+        
+        # Store the new warmup_steps parameter
+        self.warmup_steps = warmup_steps
+
+    def on_evaluate(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        metrics,
+        **kwargs,
+    ):
+        """
+        Overrides the on_evaluate method to check for the warmup condition.
+        """
+        if state.global_step < self.warmup_steps:
+            self.early_stopping_patience_counter = 0
+            return
+
+        # If the warm-up phase is over, execute the original early stopping logic
+        super().on_evaluate(args, state, control, metrics, **kwargs)
+
+
+class WandbPlottingCallback(TrainerCallback):
+    """
+    Callback acting as a "mailbox" for plots generated during evaluation, logging
+    plots to wandb at the correct step
+    """
+    def __init__(self):
+        super().__init__()
+        self.plots_to_log = {}  # temporary storage to log at the right time
+
+    def on_log(
+        self, 
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: dict[str, float],
+        **kwargs,
+    ):
+        # We only log plots during evaluation, i.e., when an evaluation key is in
+        # the `logs` dict, "eval_loss" being a reliable key for this purpose
+        if "eval_loss" in logs and self.plots_to_log:
+
+            # Check if there are any plots in our temporary storage
+            if self.plots_to_log:
+
+                # Log the plots with the correct global step
+                wandb.log(self.plots_to_log, step=state.global_step)
+
+                # Clear the storage to prevent re-logging
+                self.plots_to_log = {}

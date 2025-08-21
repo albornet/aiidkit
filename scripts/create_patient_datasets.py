@@ -8,7 +8,9 @@ from src.data.preprocess.patient_bl_data import pool_patient_bl_data
 from src.data.preprocess.patient_drug_data import pool_patient_drug_data
 from src.data.preprocess.organ_base_data import pool_organ_base_data
 from src.data.preprocess.patient_infectious_disease_data import pool_patient_infection_data
-
+from src.data.process.patient_dataset import build_huggingface_patient_dataset
+from src.data.process.infection_task import create_infection_datasets
+        
 from src.data.process.explore_utils import (
     generate_sex_distribution_plot,
     generate_age_distribution_plot,
@@ -27,9 +29,11 @@ csts = constants.ConstantsNamespace()
 parser = argparse.ArgumentParser()
 parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
 parser.add_argument("-e", "--explore", action="store_true", help="Enable exploration mode")
+parser.add_argument("-p", "--postprocess", action="store_true", help="Only post-process dataset")
 args = parser.parse_args()
 DEBUG_FLAG = args.debug
 EXPLORE_FLAG = args.explore
+ONLY_POST_PROCESS_FLAG = args.postprocess
 
 
 def main():
@@ -56,21 +60,38 @@ def main():
     elif EXPLORE_FLAG:
         exploration_fn()
 
-    # Process all patients using multiprocesing to create csv records
     else:
-        num_workers = os.cpu_count() - 1
-        chunksize = max(1, len(patients_IDs) // (4 * num_workers))
-        pooled_fn = partial(create_patient_record, data_dict=data_dict)
-        process_map(
-            pooled_fn,
-            patients_IDs,
-            max_workers=num_workers,
-            desc=f"Creating patient records with {num_workers} workers and chunksize {chunksize}",
-            chunksize=chunksize,
+        # Process all patients using multiprocesing to create csv records
+        if not ONLY_POST_PROCESS_FLAG:
+            num_workers = os.cpu_count() - 1
+            chunksize = max(1, len(patients_IDs) // (4 * num_workers))
+            pooled_fn = partial(create_patient_record, data_dict=data_dict)
+            process_map(
+                pooled_fn,
+                patients_IDs,
+                max_workers=num_workers,
+                desc=f"Creating patient records with {num_workers} workers and chunksize {chunksize}",
+                chunksize=chunksize,
+            )
+
+        # Format the csv files to a huggingface dataset with train / val / test splits
+        build_huggingface_patient_dataset(
+            input_data_dir=csts.PREPROCESSED_DIR_PATH,
+            output_data_dir=csts.HUGGINGFACE_DIR_PATH,
+            metadata_dir=csts.METADATA_DIR_PATH,
+            create_patient_cards=True,
+            create_patient_card_summaries=False,
+        )
+
+        # Create infection task datasets
+        create_infection_datasets(
+            patient_sequence_dir=csts.HUGGINGFACE_DIR_PATH,
+            create_patient_cards=True,
+            create_patient_card_summaries=False,
         )
 
     # Success!
-    print("Dataset created successfully")
+    print("All datasets created successfully")
 
 
 def create_patient_record(
@@ -109,7 +130,7 @@ def create_patient_record(
     patient_df["time"] = pd.to_datetime(patient_df["time"], errors="coerce")
     patient_df["time"] = patient_df["time"].dt.strftime("%Y-%m-%d")  # time is always a date
     patient_df = patient_df.drop_duplicates(subset=["attribute", "value", "time"])
-    patient_df = patient_df.sort_values(by=["time", "entity", "attribute"])
+    patient_df = patient_df.sort_values(by=["time", "entity", "attribute", "value"])
 
     # Save the patient record to a CSV file
     if 1:  # not DEBUG_FLAG:

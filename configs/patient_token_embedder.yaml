@@ -1,36 +1,19 @@
-# Data and model arguments
-LOAD_HUGGINGFACE_DATASET: false
-ORIGINAL_MODEL_ID: answerdotai/ModernBERT-large
-ORIGINAL_MODEL_TASK: masked  # causal, masked
-ORIGINAL_MODEL_PARAMS:  # any parameter to modify from the original model
-  output_hidden_states: true
-  torch_dtype: bfloat16
-  # num_attention_heads: 4
-  # num_hidden_layers: 4
-  # hidden_size: 256
-  # intermediate_size: 1024
-DEFAULT_BASE_VOCAB:
-  "[PAD]": 0
-  "[MASK]": 1
-  "[BOS]": 2
-  "[EOS]": 3
-  "[UNK]": 4
-
 # Argument for HuggingFace's trainer
 TRAINING_ARGUMENTS:
+  run_name: pretraining
   output_dir: results/pretraining
   logging_dir: results/pretraining/logs
   logging_steps: 10
-  warmup_ratio: 0.1  # warmup_steps: 1000?
-  num_train_epochs: 100
-  per_device_train_batch_size: 24
+  warmup_steps: 1000  # warmup_ratio: 0.1?
+  num_train_epochs: 250  # maximum number of epochs (technically never reached)
+  per_device_train_batch_size: 32
   gradient_accumulation_steps: 1  # try to amount to 32 (or more?)
   learning_rate: 1.0e-4  # careful! 1e-4 will be read as a string
-  weight_decay: 0.01
+  weight_decay: 0.1
   bf16: true
-  
+
   # Evaluation settings
-  per_device_eval_batch_size: 32
+  per_device_eval_batch_size: 128
   eval_strategy: steps
   save_strategy: steps
   eval_steps: 250
@@ -39,6 +22,35 @@ TRAINING_ARGUMENTS:
 
 # Parameters for the custom clustering evaluation
 EVALUATION_ARGUMENTS:
-  optuna_trials: 25
-  infection_days_low: 0
-  infection_days_high: 300
+  eval_label_key: infection_label_binary  # TODO: HARMONIZE THIS WITH LABEL BELOW
+  metric_for_best_model: supervised_task_f1_macro  # supervised_task_pr_auc
+  greater_is_better: true               # whether the metric for best model should be maximized or minimized
+  early_stopping_patience: 10           # how many evaluations without improvement in metric for best model before stopping
+  do_clustering_analysis: true          # within evaluation loop, whether reduce and cluster embeddings
+  optuna_trials_for_clustering: 25      # within evaluation loop, None if you don't want to use optuna
+
+# Model arguments
+MODEL_ARGUMENTS:
+  original_model_id: answerdotai/ModernBERT-base  # note: "-large" tended to overfit
+  original_model_task: masked                     # masked, causal (causal not fully implemented yet)
+  original_model_params:                          # any parameter to modify from the original model
+    output_hidden_states: true  # keep this in any case
+    torch_dtype: bfloat16       # keep this in any case
+    num_hidden_layers: 12       # for a slightly smaller model - 12
+    num_attention_heads: 8      # for a slightly smaller model - 8
+    hidden_size: 768            # for a slightly smaller model - 512
+    intermediate_size: 2048     # for a slightly smaller model - 2048
+  use_supervised_task: true                    # true, false
+  use_uncertainty_weighting: true              # true, false -> to combine mlm and supervised task losses
+  supervised_task_weight: 0.5                  # used only if use_uncertainty_weighting is false!
+  supervised_task_key: infection_label_binary  # must correspond to below!
+  supervised_task_type: binary                 # binary (2), categorical (4), not sure if one-hot can work seamlessly
+  # supervised_task_schedule:
+  #   annealing_strategy: "cosine"  # "linear", "cosine"
+  #   start_value: 0.0              # classification weight at the beginning of training
+  #   end_value: 1.0                # classification weight at the end of training
+  #   warmup_steps: 500             # n_steps before classification weight starts moving towards end_value
+  #   end_reached_steps: 5000       # n_steps after which classification weight reaches end_value
+  use_positional_encoding_for_input_layer: true     # true, false
+  use_pretrained_embeddings_for_input_layer: false  # true, false
+  pretrained_model_name_for_input_layer: NeuML/pubmedbert-base-embeddings

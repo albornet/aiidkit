@@ -10,6 +10,8 @@ def get_drug_events(
     patient_ID: int,
     data: pd.DataFrame,
     event_type: str,
+    drug_as_value: bool=True,
+    informative_entity: bool=False,
     time_imputation_strategy: str|None="normal",  # None, "normal", "aggressive", "remove"
     other_drug_type_mapping_strategy: str|None="normal",  # None, "normal", "coarse"
 ) -> pd.DataFrame:
@@ -42,13 +44,28 @@ def get_drug_events(
     if not drug_regimen.empty:
         drug_type.loc[drug_regimen.index, "value"] += "-" + drug_regimen["drugreg"]
 
-    # Combine extracted values using the indices to align rows correctly
-    # "value": drug_counter["drug_counter"].map(lambda c: f"{event_type} ({c})"),
-    entity_map_fn = lambda v: f"Drug event ({re.sub(r'(?<!^)(?=[A-Z])', ' ', v).lower()})"
+    # Select entity, based on whether the broad medication class should be given
+    drug_class_map_fn = lambda v: f" ({re.sub(r'(?<!^)(?=[A-Z])', ' ', v).lower()})"
+    drug_class_info = drug_class["value"].map(drug_class_map_fn)
+    entity = "Drug event"
+    if informative_entity:
+        entity += drug_class_info
+    else:
+        drug_type["value"] += drug_class_info
+
+    # Select value and attribute (using drug_as_value makes a harder MLM task)
+    if drug_as_value:
+        attributes = f"Drug {event_type.lower()}"
+        values = drug_type["value"]  # -> task: predict what drug is started / stopped
+    else:
+        attributes = drug_type["value"]
+        values = event_type.capitalize()  # -> task: predict if a drug is started / stopped
+
+    # Combine extracted data, dataframe indices are used to align rows correctly
     drug_df = pd.DataFrame({
-        "entity": drug_class["value"].map(entity_map_fn),
-        "attribute": drug_type["value"].map(lambda v: f"Drug - {v}"),
-        "value": event_type.capitalize(),
+        "entity": entity,
+        "attribute": attributes,
+        "value": values,
         "time": drug_type["time"],
     })
 

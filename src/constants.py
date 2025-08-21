@@ -12,8 +12,24 @@ class ConstantsNamespace():
     EXCEL_DATA_PATH = os.path.join("data", "raw", "Datacut_FUP226_raw-01Jan2023_v1.xlsx")
     PICKLE_DATA_PATH = os.path.join("data", "raw", "Datacut_FUP226_raw-01Jan2023_v1.pkl")
     PREPROCESSED_DIR_PATH = os.path.join("data", "preprocessed")
-    HUGGINGFACE_DIR_PATH = os.path.join("data", "huggingface")
+    HUGGINGFACE_DIR_PATH = os.path.join("data", "hf_data", "full_patient_sequences")
+    METADATA_DIR_PATH = os.path.join("data", "hf_metadata")
     EXPLORE_DIR_PATH = os.path.join("data", "explore")
+
+    # Useful if we use our own "triplet" patient embedder
+    BASE_VOCAB = {
+        "[PAD]": 0,
+        "[MASK]": 1,
+        "[BOS]": 2,
+        "[EOS]": 3,
+        "[UNK]": 4,
+    }
+
+    # Infection task labels
+    INFECTION_TYPES = ["bacterial", "viral", "fungal"]
+    LABEL_CLASSES = ["healthy"] + INFECTION_TYPES
+    PREDICTION_HORIZONS = [7, 14, 30, 90, 180, 365]  # in days
+    CUTOFF_DAYS = [0, 7, 14, 30, 120, 365, 1000, 3000, "full"]  # in days after first transplant event
 
     # Sheet names
     CONSENT_SHEET = "Consent"  # "#1_CONSENT" <- names change for the full data file
@@ -30,7 +46,7 @@ class ConstantsNamespace():
     START_TIME_IMPUTATION_STRATEGY = "aggressive"  # None, "normal", "aggressive", "remove"
     STOP_TIME_IMPUTATION_STRATEGY = "remove"  # None, "normal", "aggressive", "remove" 
     OTHER_DRUG_TYPE_MAPPING_STRATEGY = "coarse"  # None, "normal", "coarse"
-    
+
     # To use for removing missing or invalid values
     VALID_DATE_RANGE = (pd.Timestamp("1900-01-01"), pd.Timestamp("2030-01-01"))
     NAN_LIKE_DATES = (pd.NaT, pd.Timestamp("9999-01-01"), pd.Timestamp("2000-01-01"))
