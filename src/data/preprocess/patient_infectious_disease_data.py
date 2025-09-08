@@ -3,7 +3,7 @@
 ##################################################################
 
 import pandas as pd
-from src.data.data_utils import generate_wide_eavt_df_from_object
+from src.data.data_utils import generate_value_wide_eavt_df_from_object
 from src.data.preprocess.clinical_objects import (
     Bacteria, Virus, Fungus, Parasite, Infection, InfectionType, InfectionSite,
     ImmunosuppressionReduced, DonorRelatedInfection, RequiredHospitalization,
@@ -455,7 +455,7 @@ def pool_patient_infection_data(
     # Flatten each patient infection event to an EAVT table
     pat_inf_dfs = []
     for inf_event in pat_inf_events:
-        eavt_table = generate_wide_eavt_df_from_object(
+        eavt_table = generate_value_wide_eavt_df_from_object(
             root_obj=inf_event,
             time_key="infection_date",
             filtered_attributes=["patient_ID"],

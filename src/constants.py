@@ -2,7 +2,6 @@ import os
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from collections import defaultdict
 
 
 @dataclass(frozen=True)
@@ -28,8 +27,9 @@ class ConstantsNamespace():
     # Infection task labels
     INFECTION_TYPES = ["bacterial", "viral", "fungal"]
     LABEL_CLASSES = ["healthy"] + INFECTION_TYPES
-    PREDICTION_HORIZONS = [7, 14, 30, 90, 180, 365]  # in days
-    CUTOFF_DAYS = [0, 7, 14, 30, 120, 365, 1000, 3000, "full"]  # in days after first transplant event
+    PREDICTION_HORIZONS = [30, 60, 90, 180, 365]  # in days
+    CUTOFF_DAYS = [0, 30, 60, 90, 180, 365]  # in days after first transplant event
+    # CUTOFF_DAYS = [0, 30, 60, 90, 180, 365, 1000, 3000, "full"]  # in days after first transplant event
 
     # Sheet names
     CONSENT_SHEET = "Consent"  # "#1_CONSENT" <- names change for the full data file

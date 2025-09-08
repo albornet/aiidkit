@@ -10,6 +10,13 @@ from src.data.process.patient_dataset import (
 import src.constants as constants
 csts = constants.ConstantsNamespace()
 
+LABEL_KEYS = [
+    "infection_label_binary_any", "infection_label_binary_bacterial",
+    "infection_label_binary_viral", "infection_label_binary_fungal",
+    "infection_label_categorical", "infection_label_one_hot",
+]
+CONTEXT_KEYS = ["cutoff", "horizon", "sequence_id"]
+
 
 def create_infection_datasets(
     patient_sequence_dir: str,
@@ -92,13 +99,21 @@ def get_categorical_target(
     return csts.LABEL_CLASSES.index("healthy")  # fallback
 
 
-def get_binary_target(future_types: list[str]) -> int:
+def get_binary_target(
+    future_types: list[str],
+    type_constraint: str|None = None,
+) -> int:
     """
     Compute the binary label for the first future infection
     """
     if not future_types:
         return 0
-    return 1
+    if type_constraint is None:
+        return 1
+    for inf_type in future_types:
+        if type_constraint.lower() in inf_type.lower():
+            return 1
+    return 0
 
 
 def create_partial_sequence_labels(
@@ -122,12 +137,22 @@ def create_partial_sequence_labels(
         if prediction_start_day <= time <= prediction_end_day:
             future_times.append(time)
             future_types.append(type)
-    
-    return (
-        get_binary_target(future_types),
-        get_categorical_target(future_times, future_types),
-        get_one_hot_target(future_types)
-    )
+
+    # Build all required labels
+    label_dict = {
+        "infection_label_binary_any": get_binary_target(future_types),
+        "infection_label_binary_bacterial": get_binary_target(future_types, "Bacterial Infection"),
+        "infection_label_binary_viral": get_binary_target(future_types, "Viral Infection"),
+        "infection_label_binary_fungal": get_binary_target(future_types, "Fungal Infection"),
+        "infection_label_categorical": get_categorical_target(future_times, future_types),
+        "infection_label_one_hot": get_one_hot_target(future_types),
+    }
+
+    # Sanity check
+    if not all([label_key in LABEL_KEYS for label_key in label_dict.keys()]):
+        raise ValueError("One or more keys in LABEL_KEYS are not defined.")
+        
+    return label_dict
 
 
 def create_prediction_sequences(
@@ -150,11 +175,7 @@ def create_prediction_sequences(
     max_time = days_since_tpx.max() if len(days_since_tpx) > 0 else 0
 
     # Initialize utilities for sequence creation
-    target_columns = [
-        "infection_label_binary", "infection_label_categorical",
-        "infection_label_one_hot", "cutoff", "horizon", "sequence_id",
-    ]
-    data_columns = list(patient_sample.keys()) + target_columns
+    data_columns = list(patient_sample.keys()) + LABEL_KEYS + CONTEXT_KEYS
     new_samples = {key: [] for key in data_columns}
 
     # Iterate through different cutoff days
@@ -186,8 +207,7 @@ def create_prediction_sequences(
         previous_mask_sum = current_mask_sum
 
         # Get all labels for this partial sequence (this part remains the same)
-        binary_target, categorical_target, one_hot_target =\
-        create_partial_sequence_labels(
+        label_dict = create_partial_sequence_labels(
             infection_events=infection_events,
             cutoff_day=cutoff_day,
             prediction_horizon=prediction_horizon,
@@ -201,13 +221,12 @@ def create_prediction_sequences(
                 new_samples[key].append(values)  # non-sequence data
 
         # Add computed labels and label information as new fields
-        new_samples["infection_label_binary"].append(binary_target)
-        new_samples["infection_label_categorical"].append(categorical_target)
-        new_samples["infection_label_one_hot"].append(one_hot_target)
+        for label_key in LABEL_KEYS:
+            new_samples[label_key].append(label_dict[label_key])
+
+        # Add context info to keep track from which sequence samples were generated
         new_samples["cutoff"].append(cutoff_day_key)
         new_samples["horizon"].append(prediction_horizon)
-
-        # Add an int ID to keep track of from which sequence all samples were generated
         new_samples["sequence_id"].append(sequence_id)
 
     return new_samples
@@ -225,11 +244,7 @@ def create_prediction_sequences_batched(
     """
     # Iterate over each patient in the batch
     num_patients = len(patient_batch[next(iter(patient_batch))])
-    target_columns = [
-        "infection_label_binary", "infection_label_categorical",
-        "infection_label_one_hot", "cutoff", "horizon", "sequence_id",
-    ]
-    output_keys = list(patient_batch.keys()) + target_columns
+    output_keys = list(patient_batch.keys()) + LABEL_KEYS + CONTEXT_KEYS
     output_batch = {key: [] for key in output_keys}
     for i in range(num_patients):
 

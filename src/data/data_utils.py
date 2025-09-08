@@ -346,8 +346,8 @@ def generate_flat_eavt_df_from_object(
     return pd.DataFrame(rows)
 
 
-def generate_wide_eavt_df_from_object(
-root_obj: Any,
+def generate_attribute_wide_eavt_df_from_object(
+    root_obj: Any,
     time_key: str = "time",  # "infection_date"
     filtered_attributes: list[str] = [],  # ["patient_ID"]
     filtered_values: list[Any] = [],  # ["UNKNOWN", "Unknown", None]
@@ -436,6 +436,126 @@ root_obj: Any,
                     continue
                 new_attribute_path = f"{attribute_path} {format_attribute_part(attr)}".strip()
                 flatten(val, entity_name, new_attribute_path)
+            return
+
+        # Fallback for any other type
+        update_rows(str(obj), attribute_path)
+
+    # Prepare the root entity name with proper spacing (e.g., "BacterialInfection" -> "Bacterial Infection")
+    entity_pattern = r"((?<=[a-z])[A-Z]|(?<=[A-Z])[A-Z](?=[a-z]))"
+    root_entity_name = re.sub(pattern=entity_pattern, repl=r" \1", string=root_obj.__class__.__name__)
+
+    # Start the recursion from the root object's attributes
+    for attr, val in vars(root_obj).items():
+        if attr.strip("_") in filtered_attributes + [time_key]:
+            continue
+
+        initial_attribute_path = format_attribute_part(attr)
+        flatten(val, root_entity_name, initial_attribute_path)
+
+    return pd.DataFrame(rows)
+
+
+def generate_value_wide_eavt_df_from_object(
+    root_obj: Any,
+    time_key: str = "time",  # "infection_date"
+    filtered_attributes: list[str] = [],  # ["patient_ID"]
+    filtered_values: list[Any] = [],  # ["UNKNOWN", "Unknown", None]
+) -> pd.DataFrame:
+    """ Generate a generic "wide" EAVT (entity-attribute-value-time) dataframe
+        from any python object with a nested structure.
+
+        In this "wide" version, nested object attributes are concatenated to form
+        a single descriptive attribute for the root entity, rather than creating
+        new entities for nested objects.
+
+        For lists, the index of an item is prepended to its final value
+        (e.g., "0: value_of_item_0").
+
+        Args:
+            root_obj: object to flatten.
+            time_key: key to retrieve the time associated with the object.
+            filtered_attributes: list of raw attribute names to filter out.
+            filtered_values: list of values to filter out of the EAVT table.
+
+        Returns:
+            A pandas DataFrame in the wide EAVT format.
+    """
+    rows = []
+
+    def format_attribute_part(attr: str) -> str:
+        """Formats a single part of an attribute path."""
+        s = attr.strip("_").replace("_", " ")
+        if not s:
+            return ""
+        return s[0].upper() + s[1:]
+
+    # Helper function to flatten the object recursively
+    def flatten(obj: Any, entity_name: str, attribute_path: str, index_prefix: str | None = None):
+
+        # Identify event time, preferring the nested object's time if available
+        event_time = getattr(root_obj, time_key, None)
+        if hasattr(obj, time_key):
+            event_time = getattr(obj, time_key)
+
+        # Helper function to fill-in formatted EAVT table entries
+        def update_rows(value: Any, attr_path: str):
+            if value in filtered_values:
+                return
+
+            time = event_time
+            # If the value is a datetime object, use it as the event time
+            # and don't record it as a value itself.
+            if isinstance(value, datetime):
+                time = value
+                value = None
+
+            ### MODIFIED: Prepend the index to the value if it exists ###
+            final_value = f"{index_prefix}: {value}" if index_prefix is not None else value
+
+            eavt = {"entity": entity_name, "attribute": attr_path, "value": final_value, "time": time}
+            rows.append(eavt)
+
+        # Handle simple values, which terminate the recursion
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            update_rows(obj, attribute_path)
+            return
+
+        # Handle enums by using their string name
+        if isinstance(obj, Enum):
+            update_rows(obj.name, attribute_path)
+            return
+
+        # Handle lists by iterating and passing the index down for inclusion in the value
+        if isinstance(obj, list):
+            if not obj:
+                update_rows(None, attribute_path)  # Record that the list is empty
+                return
+            for i, item in enumerate(obj):
+                # Build a new prefix, handling nested lists (e.g., "0.1")
+                new_prefix = f"{index_prefix}.{i}" if index_prefix else str(i)
+                # The attribute path does not change for list items
+                flatten(item, entity_name, attribute_path, index_prefix=new_prefix)
+            return
+
+        # Handle dictionaries by iterating through key-value pairs
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                if key.strip("_") in filtered_attributes + [time_key]:
+                    continue
+                new_attribute_path = f"{attribute_path} {format_attribute_part(key)}".strip()
+                ### MODIFIED: Pass the index_prefix through ###
+                flatten(val, entity_name, new_attribute_path, index_prefix=index_prefix)
+            return
+
+        # Handle custom objects by iterating through their attributes
+        if hasattr(obj, "__dict__"):
+            for attr, val in vars(obj).items():
+                if attr.strip("_") in filtered_attributes + [time_key]:
+                    continue
+                new_attribute_path = f"{attribute_path} {format_attribute_part(attr)}".strip()
+                ### MODIFIED: Pass the index_prefix through ###
+                flatten(val, entity_name, new_attribute_path, index_prefix=index_prefix)
             return
 
         # Fallback for any other type

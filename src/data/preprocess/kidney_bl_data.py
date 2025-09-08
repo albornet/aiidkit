@@ -6,6 +6,12 @@ from src.data.data_utils import *
 # DATES DATA #
 ##############
 
+def get_transplantation_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+    """ NOTE: NOT USED SINCE WE USE ORGAN BASE DATA INSTEAD (ALL TRANSPLANT EVENTS)
+    """
+    tpxdate = get_date_by_key(patient_ID, data, "tpxdate")
+    return tpxdate.rename(columns={"tpxdate": "Transplantation event"})
+
 def get_donor_birth_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ NOTE: NOT USED SINCE WE USE DONAGE INSTEAD
         NOTE: SHOULD WE HAVE A TOKEN FOR EVERY PATIENT BIRTHDAYS?
@@ -13,17 +19,13 @@ def get_donor_birth_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     donbirthdate = get_date_by_key(patient_ID, data, "donbirthdate")
     return donbirthdate.rename(columns={"donbirthdate": "Donor birthdate"})
 
-def get_hospitalization_start_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+def get_hospitalization_start(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     hospstart = get_date_by_key(patient_ID, data, "hospstart")
-    return hospstart.rename(columns={"hospstart": "Hospitalization start"})
+    return hospstart.rename(columns={"hospstart": "Hospitalization"})
 
-def get_transplantation_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
-    tpxdate = get_date_by_key(patient_ID, data, "tpxdate")
-    return tpxdate.rename(columns={"tpxdate": "Transplantation event"})
-
-def get_hospitalization_end_date(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
+def get_hospitalization_end(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     hospend = get_date_by_key(patient_ID, data, "hospend")
-    return hospend.rename(columns={"hospend": "Hospitalization end"})
+    return hospend.rename(columns={"hospend": "Hospitalization"})
 
 
 ###################################
@@ -252,13 +254,13 @@ def get_immuno_test_hla_antibodies(patient_ID: int, data: pd.DataFrame) -> pd.Da
         value_key="immures",
         attribute_key="immu",
     )
-    
+
     # Some "immu_#" are "Unknown", all with "Unknown" as value, and "NaT" as time
     immu_tests = immu_tests[immu_tests["attribute"] != "Unknown"]
-    
+
     # Keep where the attribute comes from in the attribute key
     immu_tests["attribute"] = immu_tests["attribute"].apply(lambda s: f"Immuno test - {s}")
-    
+
     return immu_tests
 
 def get_etiology(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
@@ -298,11 +300,8 @@ def pool_kidney_bl_data(
     """
     # Entity: Transplant trocedure
     transplant_procedure = concatenate_clinical_information([
-        df.melt(var_name="attribute", value_name="time").assign(value="Occured") for df in [
-            get_hospitalization_start_date(patient_ID, kidney_bl_df),
-            get_transplantation_date(patient_ID, kidney_bl_df),
-            get_hospitalization_end_date(patient_ID, kidney_bl_df),
-        ]
+        get_hospitalization_start(patient_ID, kidney_bl_df).melt(var_name="attribute", value_name="time").assign(value="Start"),
+        get_hospitalization_end(patient_ID, kidney_bl_df).melt(var_name="attribute", value_name="time").assign(value="Stop"),
     ] + [
         df.melt(var_name="attribute", value_name="value").assign(time=pd.NaT) for df in [
             get_kidney_resection_status(patient_ID, kidney_bl_df),
@@ -316,15 +315,19 @@ def pool_kidney_bl_data(
         ]
     ]).assign(entity="Transplant procedure")
 
-    # Entity: HLA mismatch
-    hla_mismatch = concatenate_clinical_information([
-        df.melt(var_name="attribute", value_name="value") for df in [
-            get_hla_a_mismatch(patient_ID, kidney_bl_df),
-            get_hla_b_mismatch(patient_ID, kidney_bl_df),
-            get_hla_dr_mismatch(patient_ID, kidney_bl_df),
-            get_sum_hla_mismatch(patient_ID, kidney_bl_df),
+    # Entity: Lab results (together with other variables in kidney follow-up module)
+    hla_mismatch = concatenate_clinical_information(
+        [
+            df.melt(var_name="attribute", value_name="value") for df in [
+                get_hla_a_mismatch(patient_ID, kidney_bl_df),
+                get_hla_b_mismatch(patient_ID, kidney_bl_df),
+                get_hla_dr_mismatch(patient_ID, kidney_bl_df),
+                get_sum_hla_mismatch(patient_ID, kidney_bl_df),
+            ]
+        ] + [
+            get_immuno_test_hla_antibodies(patient_ID, kidney_bl_df),
         ]
-    ]).assign(time=pd.NaT, entity="HLA mismatch")
+    ).assign(time=pd.NaT, entity="Lab result")
 
     # Entity: Donor demographics
     donor_demographics = concatenate_clinical_information([
@@ -346,11 +349,10 @@ def pool_kidney_bl_data(
         ]
     ] + [
         get_initial_dialysis(patient_ID, kidney_bl_df),
-        get_immuno_test_hla_antibodies(patient_ID, kidney_bl_df),
         get_etiology(patient_ID, kidney_bl_df),
         get_etiology_histology_confirmation(patient_ID, kidney_bl_df),
     ]).assign(entity="Receiver medical history")
-
+    
     # Entity: Receiver serology
     serology_receiver = concatenate_clinical_information([
         df.melt(var_name="attribute", value_name="value") for df in [

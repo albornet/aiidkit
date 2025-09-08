@@ -58,7 +58,7 @@ def main():
     
     # Allow raw data file exploration, if EXPLORE_FLAG is enabled
     elif EXPLORE_FLAG:
-        exploration_fn()
+        exploration_fn(data_dict)
 
     else:
         # Process all patients using multiprocesing to create csv records
@@ -79,14 +79,14 @@ def main():
             input_data_dir=csts.PREPROCESSED_DIR_PATH,
             output_data_dir=csts.HUGGINGFACE_DIR_PATH,
             metadata_dir=csts.METADATA_DIR_PATH,
-            create_patient_cards=True,
+            create_patient_cards=False,
             create_patient_card_summaries=False,
         )
 
         # Create infection task datasets
         create_infection_datasets(
             patient_sequence_dir=csts.HUGGINGFACE_DIR_PATH,
-            create_patient_cards=True,
+            create_patient_cards=False,
             create_patient_card_summaries=False,
         )
 

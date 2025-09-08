@@ -77,6 +77,9 @@ def load_hf_data_and_metadata(
                     f"Supported cutoff days are: {csts.CUTOFF_DAYS}"
                 )
 
+            # Make sure cutoff_days is a list of str
+            cutoff_days = [str(cd) for cd in cutoff_days]
+
             # Filter the dataset to only include samples with the specified cutoff days
             dataset[split] = dataset[split].filter(
                 function=lambda sample: sample["cutoff"] in cutoff_days,
@@ -148,13 +151,13 @@ def build_patient_sample(patient_csv_path: str) -> dict[str, np.ndarray|list|str
     """
     # Load patient data as a pandas dataframe
     patient_df = pd.read_csv(patient_csv_path)
-    
+
     # Format and extract time
     patient_df["time"] = patient_df["time"].astype(str)  # to avoid type inconsistency with nans
     patient_times = pd.to_datetime(patient_df["time"])
-    
+
     # Fill-in static values with first transplantation date
-    tpx_event_mask = patient_df["attribute"] == "Transplantation event"
+    tpx_event_mask = patient_df["attribute"] == "Transplanted organ"
     first_tpx_time = patient_times.loc[tpx_event_mask].iloc[0]
     patient_times = patient_times.fillna(first_tpx_time)
 
@@ -172,7 +175,7 @@ def build_patient_sample(patient_csv_path: str) -> dict[str, np.ndarray|list|str
     sample = sample.to_dict(orient="list")
     sample.update({"infection_events": get_all_infection_events(patient_df)})
     sample.update({"patient_csv_path": patient_csv_path})
-    
+
     return sample
 
 

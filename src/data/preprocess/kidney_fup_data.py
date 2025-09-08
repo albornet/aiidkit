@@ -69,8 +69,9 @@ def get_early_allograft_dysfunction(patient_ID: int, data: pd.DataFrame) -> pd.D
     """
     dgf_data = data.loc[data["patid"] == patient_ID, ["dgf", "dgfduration", "tpxdate"]]
     dgf_data.loc[dgf_data["dgfduration"].isin(csts.NAN_LIKE_NUMBERS), "dgfduration"] = np.nan
+    dgf_data = dgf_data.drop_duplicates()
 
-    valid_dgf_categories = ["DGF", "PNF"]
+    valid_dgf_categories = ["No", "DGF", "PNF"]
     relevant_data = dgf_data[dgf_data["dgf"].isin(valid_dgf_categories)]
 
     if relevant_data.empty:
@@ -80,9 +81,25 @@ def get_early_allograft_dysfunction(patient_ID: int, data: pd.DataFrame) -> pd.D
     relevant_data = relevant_data.rename(
         columns={"dgf": "attribute", "dgfduration": "value", "tpxdate": "time"},
     )
-    relevant_data.loc[relevant_data["attribute"] == "PNF", "value"] = "Occured"
-    relevant_data.loc[relevant_data["attribute"] == "DGF", "attribute"] = "DGF [days?]"
+    relevant_data.loc[relevant_data["attribute"] == "PNF", "value"] = "Yes"
+    relevant_data.loc[relevant_data["attribute"] == "DGF", "attribute"] = "DGF [days]"
+
+    # Compute rows representing the absence of occurrence of DGF / PNF
+    absence_rows = []
+    for time in relevant_data["time"].unique():
+        rows = relevant_data.loc[relevant_data["time"] == time]
+        if "DGF [days?]" not in rows["attribute"].values:
+            absence_rows.append({"time": time, "attribute": "DGF", "value": "No"})
+        if "PNF" not in rows["attribute"].values:
+            absence_rows.append({"time": time, "attribute": "PNF", "value": "No"})
     
+    # Add computed absence rows
+    if absence_rows:
+        relevant_data = pd.concat([relevant_data, pd.DataFrame(absence_rows)], ignore_index=True)
+    
+    # Filter out the "No" attribute rows, which were there only for construction
+    relevant_data = relevant_data[relevant_data["attribute"] != "No"]
+
     return relevant_data
 
 def get_reason_for_graft_loss(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
@@ -98,6 +115,8 @@ def _define_rj_status(value: Union[str, float]) -> str:
     if (isinstance(value, float) and np.isnan(value))\
     or value.lower() in ["not applicable", "unknown"]:
         return "Rejection type"
+    elif value.lower == "refused":
+        return "refused"  # happened once, not sure why
     else:
         return f"Rejection type ({str(value).lower()} status)"
 
@@ -115,10 +134,14 @@ def get_rejection_event(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
 
     rj_events["attribute"] = rj_events["attribute"].apply(_define_rj_status)
 
+    # Skip "refused" status (I saw one once, not sure why..., should check)
+    rj_events = rj_events[rj_events["attribute"] != "refused"]
+
     return rj_events
 
 def get_allograft_disease_event(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     alldis = get_longitudinal_data(patient_ID, data, "alldisdate", "alldis")
+    alldis = alldis.dropna(subset=["time"])  # not sure if we should keep them, but them it's hard to set a time!
     return alldis.assign(attribute="Allograft disease")
 
 def get_transplant_related_complication_event(patient_ID:int, data:pd.DataFrame) -> pd.DataFrame:
@@ -220,7 +243,7 @@ def pool_kidney_fup_data(
         get_bkv_uremia_level(patient_ID, kidney_fup_df),
         get_protein_uria_level(patient_ID, kidney_fup_df),
         get_immuno_test_hla_antibodies(patient_ID, kidney_fup_df),
-    ]).assign(entity="Post-transplant lab results")
+    ]).assign(entity="Lab result")
 
     # Entity: Post-transplant complications
     post_tpx_complications = concatenate_clinical_information([
@@ -229,7 +252,7 @@ def pool_kidney_fup_data(
         get_rejection_event(patient_ID, kidney_fup_df),
         get_allograft_disease_event(patient_ID, kidney_fup_df),
         get_transplant_related_complication_event(patient_ID, kidney_fup_df),
-    ]).assign(entity="Post-transplant complications")
+    ]).assign(entity="Post-transplant complication")
 
     # Entity: Biopsy results (Banff)
     biopsy_results = get_banff_results(patient_ID, kidney_fup_df).assign(entity="Biopsy results (Banff)")

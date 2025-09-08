@@ -12,7 +12,6 @@ def get_any_transplanted_organ(
     include_kidneys: bool=True,
 ) -> pd.DataFrame:
     """ Get transplantation event, for Organ, including non-kidney
-        TODO: COMPARE WITH GET_TRANSPLANTATION_DATE FROM KIDNEY_BL_DATA
     """
     # Select transplanted organ categories present in the database
     valid_categories = ["Pancreas", "Liver", "Islets", "Heart", "Lung"]
@@ -25,10 +24,7 @@ def get_any_transplanted_organ(
     )
     if tpx_event.empty: return tpx_event
 
-    return tpx_event.assign(
-        entity="Transplanted organ (" + tpx_event["value"] + ")",
-        attribute="Organ type",
-    )
+    return tpx_event.assign(attribute="Transplanted organ")
 
 
 def get_any_organ_status_uptate(
@@ -58,15 +54,14 @@ def get_any_organ_status_uptate(
     status_update = status_update.drop(columns="organid")
 
     return status_update.assign(
-        entity="Transplanted organ (" + updated_organ + ")",
-        attribute="Status update",
+        attribute="Transplanted organ status update",
+        value=status_update["value"] + " (" + updated_organ + ")",
     )
 
 
 def get_any_organ_donor_type(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Get status of the donor, adding organ name to the attribute, and date to
         avoid any mix-up for patients with several transplanted organs
-        TODO: COMPARE WITH GET_DONOR_TYPE FROM KIDNEY_BL_DATA
     """
     valid_categories = ["Brain dead", "Living unrelated", "Living related", "NHBD", "KPD"]
     donor_type = get_categorical_feature_by_key(
@@ -85,8 +80,8 @@ def get_any_organ_donor_type(patient_ID: int, data: pd.DataFrame) -> pd.DataFram
     retrieved_tpx_time = donor_type["organid"].map(organid_to_tpx_info["time"])
 
     return donor_type.assign(
-        entity="Transplanted organ (" + retrieved_organ + ")",
-        attribute="Donor type",
+        attribute="Transplanted organ donor type",
+        value=donor_type["value"] + " (" + retrieved_organ + ")",
         time=retrieved_tpx_time,
     )
 
@@ -94,7 +89,7 @@ def get_any_organ_donor_type(patient_ID: int, data: pd.DataFrame) -> pd.DataFram
 def get_any_organ_resection_status(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Get resection status of the transplanted organ, adding organ name to the
         attribute, and date to avoid any mix-up with other transplanted organs
-        TODO: COMPARE WITH GET_RESECTION_STATUS FROM KIDNEY_BL_DATA
+        TODO: FIGURE OUT WHAT RESECTION MEAN IN THE STCS CONTEXT
     """
     valid_categories = ["First", "Re", "Sec"]
     resec_status = get_categorical_feature_by_key(
@@ -113,8 +108,8 @@ def get_any_organ_resection_status(patient_ID: int, data: pd.DataFrame) -> pd.Da
     retrieved_tpx_time = resec_status["organid"].map(organid_to_tpx_info["time"])
     
     return resec_status.assign(
-        entity="Transplanted organ (" + retrieved_organ + ")",
-        attribute="Resec status",
+        attribute="Transplanted organ resection status",
+        value=resec_status["value"] + " (" + retrieved_organ + ")",
         time=retrieved_tpx_time,
     )
 
@@ -135,12 +130,11 @@ def pool_organ_base_data(
         get_any_organ_status_uptate(patient_ID, organ_base_df),
         get_any_organ_donor_type(patient_ID, organ_base_df),
         get_any_organ_resection_status(patient_ID, organ_base_df),
-    ])
+    ]).assign(entity="Transplant procedure")
 
     # Finalize patient dataframe
     patient_df = concatenate_clinical_information([kbl_longitudinals])
     patient_df = patient_df.drop_duplicates()
-    # patient_df = patient_df.assign(entity="Transplanted organ info")  # TODO: CHECK FOR MORE FINE-GRAINED ENTITY ASSIGNATION STRATEGY
     patient_df = patient_df.sort_values(by=["time"])
     patient_df = patient_df[["entity", "attribute", "value", "time"]]
     
