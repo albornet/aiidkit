@@ -196,7 +196,7 @@ def load_trainer_for_sequence_embedding(
     metric_computer = CustomEmbeddingEvaluator(
         eval_dataset=eval_dataset,
         embedding_mode="sequence",
-        eval_label_key=cfg_eval_args["eval_label_key"] if use_supervised_labels else None,
+        eval_label_key=cfg_eval_args["eval_label_key"] if use_supervised_labels else None,  # MIGHT CHECK IN MODEL_ARGUMENTS FOR THIS KEY
         optuna_trials=cfg_eval_args["optuna_trials"],
         eval_batch_size=cfg_train_args["per_device_eval_batch_size"],
         eval_data_collator=data_collator,

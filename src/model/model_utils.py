@@ -136,7 +136,7 @@ class FocalLoss(nn.Module):
             return focal_loss
 
 
-class WarmupEarlyStoppingCallback(EarlyStoppingCallback):
+class EarlyStoppingCallbackWithWarmup(EarlyStoppingCallback):
     """
     An EarlyStoppingCallback that disables early stopping for some warm-up steps
     """
@@ -164,6 +164,89 @@ class WarmupEarlyStoppingCallback(EarlyStoppingCallback):
 
         # If the warm-up phase is over, execute the original early stopping logic
         super().on_evaluate(args, state, control, metrics, **kwargs)
+
+
+class SupervisedTaskWeightSchedulerCallback(TrainerCallback):
+    """
+    A callback to handle annealing a weight during training.
+    """
+    def __init__(self, start_steps, end_steps, start_value, end_value, strategy="linear"):
+        self.start_steps = start_steps
+        self.end_steps = end_steps
+        self.start_value = start_value
+        self.end_value = end_value
+        self.strategy = strategy
+        self.current_weight = start_value
+
+    def on_step_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        """
+        Called at the beginning of a training step.
+        """
+        model = kwargs.get("model")
+        if model is None:
+            return
+
+        current_step = state.global_step
+
+        # Before annealing starts (during warmup)
+        if current_step < self.start_steps:
+            self.current_weight = self.start_value
+
+        # After annealing is complete
+        elif current_step >= self.end_steps:
+            self.current_weight = self.end_value
+
+        # During the annealing phase
+        else:
+            annealing_duration = self.end_steps - self.start_steps
+            progress = (current_step - self.start_steps) / annealing_duration
+
+            if self.strategy == "linear":
+                self.current_weight = self.start_value + progress * (self.end_value - self.start_value)
+            
+            elif self.strategy == "cosine":
+                # Check if we are increasing or decreasing the weight
+                if self.start_value < self.end_value:
+                    # This creates the "sine up" phase shape. The factor goes from 0 to 1.
+                    # It's based on the formula: 0.5 * (1 - cos(pi * progress))
+                    cosine_factor = 0.5 * (1.0 - math.cos(math.pi * progress))
+                else:
+                    # This is the standard "cosine down" decay. The factor goes from 1 to 0.
+                    # It's based on the formula: 0.5 * (1 + cos(pi * progress))
+                    # We subtract from 1 to make the factor go from 0 to 1 for consistent interpolation.
+                    cosine_factor_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+                    cosine_factor = 1.0 - cosine_factor_decay
+
+                # Apply the factor using standard linear interpolation
+                self.current_weight = self.start_value + cosine_factor * (self.end_value - self.start_value)
+
+            else:
+                # Default to linear if strategy is unknown
+                self.current_weight = self.start_value + progress * (self.end_value - self.start_value)
+
+        # Update the model's attribute directly
+        if hasattr(model, "supervised_task_weight"):
+            model.supervised_task_weight = self.current_weight
+
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: dict,
+        **kwargs,
+    ):
+        """
+        Adds the current supervised task weight to the logs
+        """
+        if state.is_local_process_zero:
+            logs["supervised_task_weight"] = self.current_weight
 
 
 class WandbPlottingCallback(TrainerCallback):

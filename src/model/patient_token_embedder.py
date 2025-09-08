@@ -9,7 +9,10 @@ from sentence_transformers import SentenceTransformer
 from sentence_transformers.models import Pooling
 from dataclasses import dataclass, field
 from typing import Optional
+
 from src.model.model_utils import TimeEmbedding, PositionalEncoding, FocalLoss
+import src.constants as constants
+csts = constants.ConstantsNamespace()
 
 
 @dataclass
@@ -25,6 +28,7 @@ class PatientTokenEmbeddingOutput(ModelOutput):
     loss: Optional[torch.FloatTensor] = None  # total loss
     mlm_loss: Optional[torch.FloatTensor] = None
     mlm_logits: Optional[torch.FloatTensor] = None
+    cutoff_days: Optional[torch.FloatTensor] = None
     supervised_task_loss: Optional[torch.FloatTensor] = None
     supervised_task_logits: Optional[torch.FloatTensor] = None
     supervised_task_hidden_states: Optional[tuple[torch.Tensor]] = None
@@ -110,14 +114,24 @@ class PatientTokenEmbeddingModel(nn.Module):
         )
 
         # Classifier for the supervised task, taking pooled embeddings as input
-        supervised_task_num_classes = 2 if supervised_task_type == "binary" else 4
-        self.supervised_task_decoder = nn.Sequential(
-            nn.Linear(self.pooler.pooling_output_dimension, self.hidden_size),
-            nn.LayerNorm(self.hidden_size),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(self.hidden_size, supervised_task_num_classes),
-        )
+        self.supervised_task_num_classes = 2 if supervised_task_type == "binary" else 4
+        # self.supervised_task_decoder = nn.Sequential(
+        #         nn.Linear(self.pooler.pooling_output_dimension, self.hidden_size),
+        #         nn.LayerNorm(self.hidden_size),
+        #         nn.GELU(),
+        #         nn.Dropout(0.1),
+        #         nn.Linear(self.hidden_size, self.supervised_task_num_classes),
+        #     )
+        self.supervised_task_decoders = nn.ModuleDict({
+            str(cutoff_day): nn.Sequential(
+                nn.Linear(self.pooler.pooling_output_dimension, self.hidden_size),
+                nn.LayerNorm(self.hidden_size),
+                nn.GELU(),
+                nn.Dropout(0.1),
+                nn.Linear(self.hidden_size, self.supervised_task_num_classes),
+            )
+            for cutoff_day in csts.CUTOFF_DAYS
+        })
 
         # Uncertainty weighting parameters, if required
         if self.use_uncertainty_weighting:
@@ -143,12 +157,13 @@ class PatientTokenEmbeddingModel(nn.Module):
         - during inference: use unmasked inputs for the supervised task
         """
         # Initialize conditional outputs to default values
-        # This prevents inconsistencies when collecting predictions in an evaluation loop.
+        # This prevents inconsistencies when collecting predictions in an evaluation loop
         device = attention_mask.device if attention_mask is not None else "cpu"
         hidden_states, pooled_embeddings = torch.empty(0), torch.empty(0)
-        supervised_task_logits, mlm_logits = torch.empty(0), torch.empty(0)
-        supervised_task_loss = torch.tensor(0.0, device=device)
-        
+        cutoff_days = torch.empty(0)
+        sup_logits, mlm_logits = torch.empty(0), torch.empty(0)
+        sup_loss = torch.tensor(0.0, device=device)
+
         # Perform forward pass through the embedding layer and the LLM
         output_mlm_hidden_states = self.training and self.use_supervised_task
         mlm_input_embeddings = self.input_embedding_layer(**masked_input_dict)
@@ -189,8 +204,30 @@ class PatientTokenEmbeddingModel(nn.Module):
                 "attention_mask": attention_mask,
             })["sentence_embedding"]
 
+            # # /!\ DEBUG /!\ #
+            # linear_readout_mode = True
+            # if linear_readout_mode:
+            #     pooled_embeddings = pooled_embeddings.detach()
+            # # /!\ DEBUG /!\ #
+
             # Compute supervised logits and loss if labels are provided
-            sup_logits = self.supervised_task_decoder(pooled_embeddings)
+            # sup_logits = self.supervised_task_decoder(pooled_embeddings)
+            sup_logits = torch.empty(
+                pooled_embeddings.size(0),
+                self.supervised_task_num_classes,
+                device=pooled_embeddings.device,
+            )
+            cutoffs = [str(c) for c in kwargs["cutoff"]]
+            for cutoff_day in set(cutoffs):
+                indices = [i for i, c in enumerate(cutoffs) if c == cutoff_day]
+                cutoff_embeddings = pooled_embeddings[indices]
+                cutoff_decoder = self.supervised_task_decoders[cutoff_day]
+                cutoff_logits = cutoff_decoder(cutoff_embeddings)
+                sup_logits[indices] = cutoff_logits.to(sup_logits.dtype)
+            
+            cutoffs = [int(c) if c != "full" else -1 for c in cutoffs]
+            cutoff_days = torch.tensor(cutoffs, device=device)
+
             sup_loss = self.supervised_task_loss_fn(sup_logits, supervised_task_labels)
 
         # Compute final loss (case where there is no supervised task)
@@ -206,9 +243,9 @@ class PatientTokenEmbeddingModel(nn.Module):
             regularization = 0.5 * (self.log_var_mlm + self.log_var_sup)
             total_loss = weighted_mlm_loss + weighted_sup_loss + regularization
 
-        # Combine losses with a fixed task weight
+        # Combine losses with a "fixed" task weight (might be modified by callback scheduler)
         else:
-            weighted_mlm_loss = (1 - self.supervised_task_weight) * mlm_loss
+            weighted_mlm_loss = (1 - self.supervised_task_weight) * mlm_loss  # mlm_loss
             weighted_sup_loss = self.supervised_task_weight * sup_loss
             total_loss = weighted_mlm_loss + weighted_sup_loss
 
@@ -221,6 +258,7 @@ class PatientTokenEmbeddingModel(nn.Module):
             loss=total_loss,
             mlm_loss=mlm_loss,
             mlm_logits=mlm_logits,
+            cutoff_days=cutoff_days,
             supervised_task_loss=sup_loss,
             supervised_task_logits=sup_logits,
             supervised_task_hidden_states=hidden_states,
@@ -458,7 +496,7 @@ class PatientEmbeddingLayer(nn.Module):
         else:
             eav_embeddings = self._get_embeddings_from_scratch_from_eav_ids(kwargs)
         eav_embeddings = eav_embeddings.to(kwargs[self.time_key].device)
-        
+
         # Apply time embeddings using the time input
         time_embeddings = self.time_embedding(x=eav_embeddings, times=kwargs[self.time_key])
         final_embeddings = eav_embeddings + time_embeddings

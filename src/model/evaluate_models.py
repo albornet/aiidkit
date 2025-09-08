@@ -344,16 +344,16 @@ class CustomEmbeddingEvaluator:
                 metric_dict.update({"ami_score": ami_score})
 
             # Compute classification metrics using a regularized classifier
-            cm_plot, classification_metrics = self._evaluate_supervised_classifier(eval_preds)
-            plot_dict.update({"cm_plot": cm_plot})
-            metric_dict.update(classification_metrics)
+            cm_plot_dict, classification_metric_dict = self._evaluate_supervised_classifier(eval_preds)
+            plot_dict.update(cm_plot_dict)
+            metric_dict.update(classification_metric_dict)
 
         # Compute a survival metric (using higher is better convention)
         survival_score = 0.0
         if "mlm_accuracy" in metric_dict:
             survival_score += metric_dict["mlm_accuracy"]
-        if "supervised_task_f1_macro" in classification_metrics:
-            survival_score += classification_metrics["supervised_task_f1_macro"]
+        if "supervised_task_f1_macro" in classification_metric_dict:
+            survival_score += classification_metric_dict["supervised_task_f1_macro"]
         metric_dict.update({"survival_score": survival_score})
 
         # Send the plots to the wandb plotting callback
@@ -371,7 +371,7 @@ class CustomEmbeddingEvaluator:
         """
         # Extract last hidden state from the model output
         model_output, task_labels = eval_prediction
-        mlm_loss, mlm_logits, \
+        mlm_loss, mlm_logits, cutoff_days, \
         supervised_task_loss, supervised_task_logits, \
         hidden_states, pooled_embeddings = model_output
 
@@ -396,6 +396,7 @@ class CustomEmbeddingEvaluator:
             "mlm_predictions": mlm_predictions,
             "mlm_labels": mlm_labels,
             "mlm_loss": mlm_loss,
+            "cutoff_days": cutoff_days,
             "supervised_task_loss": supervised_task_loss,
             "supervised_task_logits": supervised_task_logits,
             "supervised_task_labels": supervised_task_labels,
@@ -456,15 +457,74 @@ class CustomEmbeddingEvaluator:
 
         return np.concatenate(all_embeddings, axis=0)  # (num_eval_samples, embed_dim)
 
-    def _evaluate_supervised_classifier(
+    # def _evaluate_supervised_classifier(
+    #     self,
+    #     eval_predictions: dict[str, np.ndarray],
+    #     cutoff_days: str = None,
+    # ) -> tuple[go.Figure, dict[str, float]]:
+    #     """
+    #     Compute classification metrics from the model's supervised task logits
+    #     """
+    #     y_logits = eval_predictions["supervised_task_logits"]
+    #     y_true = eval_predictions["supervised_task_labels"][0]  # it is a tuple!
+    #     y_probs = softmax(y_logits, axis=1)
+    #     n_classes = y_logits.shape[1]
+
+    #     # Binary classification case
+    #     if n_classes == 2:
+    #         y_score = y_probs[:, 1]  # score = probability of positive class
+    #         y_pred = self._get_preds_from_best_threshold(y_true, y_score)
+    #         auroc_score = roc_auc_score(y_true, y_score)
+    #         auprc_score = average_precision_score(y_true, y_score)
+    #         sensitivity = recall_score(y_true, y_pred, pos_label=1, zero_division=0)
+    #         specificity = recall_score(y_true, y_pred, pos_label=0, zero_division=0)
+
+    #     # Multi-class classification
+    #     else:
+    #         y_pred = np.argmax(y_probs, axis=1)  # prediction = class with highest probability
+    #         auroc_score = roc_auc_score(y_true, y_probs, multi_class="ovr", average="macro")
+    #         auprc_score = None
+    #         sensitivity = None
+    #         specificity = None
+
+    #     # Compute confusion matrix plot (to be logged later)
+    #     cm_plot = wandb.plot.confusion_matrix(y_true=y_true, preds=y_pred)
+        
+    #     # Add threshold-related metrics
+    #     metrics = {
+    #         "supervised_task_accuracy": accuracy_score(y_true, y_pred),
+    #         "supervised_task_balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+    #         "supervised_task_precision_macro": precision_score(y_true, y_pred, average="macro", zero_division=0),
+    #         "supervised_task_recall_macro": recall_score(y_true, y_pred, average="macro", zero_division=0),
+    #         "supervised_task_f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
+    #         "supervised_task_ece": self._expected_calibration_error(y_true, y_probs),
+    #         "supervised_task_roc_auc": auroc_score,
+    #         "supervised_task_pr_auc": auprc_score if auprc_score is not None else "N/A",
+    #         "supervised_task_sensitivity": sensitivity if sensitivity is not None else "N/A",
+    #         "supervised_task_specificity": specificity if specificity is not None else "N/A",
+    #     }
+
+    #     return cm_plot, metrics
+
+    def _compute_classification_metrics(
         self,
-        eval_predictions: dict[str, np.ndarray],
+        y_true: np.ndarray,
+        y_logits: np.ndarray,
     ) -> tuple[go.Figure, dict[str, float]]:
         """
-        Compute classification metrics from the model's supervised task logits
+        Core logic to compute classification metrics from labels and logits.
+        
+        Args:
+            y_true: Ground truth labels.
+            y_logits: Raw logit outputs from the model.
+
+        Returns:
+            A tuple containing the confusion matrix plot and a dictionary of metrics.
         """
-        y_logits = eval_predictions["supervised_task_logits"]
-        y_true = eval_predictions["supervised_task_labels"][0]  # it is a tuple!
+        # Ensure there are samples to evaluate
+        if y_true.size == 0:
+            return None, {}
+
         y_probs = softmax(y_logits, axis=1)
         n_classes = y_logits.shape[1]
 
@@ -474,41 +534,87 @@ class CustomEmbeddingEvaluator:
             y_pred = self._get_preds_from_best_threshold(y_true, y_score)
             auroc_score = roc_auc_score(y_true, y_score)
             auprc_score = average_precision_score(y_true, y_score)
+            sensitivity = recall_score(y_true, y_pred, pos_label=1, zero_division=0)
+            specificity = recall_score(y_true, y_pred, pos_label=0, zero_division=0)
 
         # Multi-class classification
         else:
             y_pred = np.argmax(y_probs, axis=1)  # prediction = class with highest probability
             auroc_score = roc_auc_score(y_true, y_probs, multi_class="ovr", average="macro")
             auprc_score = None
+            sensitivity = None
+            specificity = None
 
         # Compute confusion matrix plot (to be logged later)
         cm_plot = wandb.plot.confusion_matrix(y_true=y_true, preds=y_pred)
 
-        # Compute calibration error and expected calibration error
-        # from netcal.metrics import ECE, MCE
-        # ece = ECE(bins=10)
-        # mce = MCE(bins=10)
-        # expected_calibration_error = ece.measure(y_probs, y_true)
-        # maximum_calibration_error = mce.measure(y_probs, y_true)
-        # metrics.update({
-        #     "supervised_task_ece": expected_calibration_error,
-        #     "supervised_task_mce": maximum_calibration_error,
-        # })
-        
-        
         # Add threshold-related metrics
         metrics = {
-            "supervised_task_accuracy": accuracy_score(y_true, y_pred),
-            "supervised_task_precision_macro": precision_score(y_true, y_pred, average="macro", zero_division=0),
-            "supervised_task_recall_macro": recall_score(y_true, y_pred, average="macro", zero_division=0),
-            "supervised_task_f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
-            "supervised_task_balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
-            "supervised_task_ece": self._expected_calibration_error(y_true, y_probs),
-            "supervised_task_roc_auc": auroc_score,
-            "supervised_task_pr_auc": auprc_score if auprc_score is not None else "N/A",
+            "accuracy": accuracy_score(y_true, y_pred),
+            "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+            "precision_macro": precision_score(y_true, y_pred, average="macro", zero_division=0),
+            "recall_macro": recall_score(y_true, y_pred, average="macro", zero_division=0),
+            "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
+            "ece": self._expected_calibration_error(y_true, y_probs),
+            "roc_auc": auroc_score,
+            "pr_auc": auprc_score if auprc_score is not None else "N/A",
+            "sensitivity": sensitivity if sensitivity is not None else "N/A",
+            "specificity": specificity if specificity is not None else "N/A",
         }
 
         return cm_plot, metrics
+
+    def _evaluate_supervised_classifier(
+        self,
+        eval_predictions: dict[str, np.ndarray],
+    ) -> tuple[go.Figure, dict[str, float]]:
+        """
+        Compute classification metrics for the overall supervised task.
+        """
+        # Extract evaluation data
+        y_logits = eval_predictions["supervised_task_logits"]
+        y_true = eval_predictions["supervised_task_labels"][0]  # it is a tuple!
+
+        # Evaluate all predictions at once
+        cm_plot, metrics = self._compute_classification_metrics(y_true, y_logits)
+        metric_dict = {f"sup_{k}": v for k, v in metrics.items()}
+        plot_dict = {"cm_plot": cm_plot}
+
+        # Evaluate predictions stratifying per cutoff day
+        cutoff_days = eval_predictions.get("cutoff_days", None)
+        if cutoff_days is not None:
+            unique_cutoffs = np.unique(cutoff_days)        
+            for cutoff in unique_cutoffs:
+
+                # Filter labels and logits
+                indices = (cutoff_days == cutoff)
+                y_true_cutoff = y_true[indices]
+                y_logits_cutoff = y_logits[indices]
+
+                # Compute metrics for this subset of data
+                cm_plot_cutoff, metrics_cutoff = self._compute_classification_metrics(
+                    y_true_cutoff, y_logits_cutoff
+                )
+
+                # Add a prefix for the cutoff day to each metric key for logging
+                plot_dict[f"cm_plot_cutoff_{int(cutoff)}"] = cm_plot_cutoff
+                for key, value in metrics_cutoff.items():
+                    metric_dict[f"sup_{key}_cut_{int(cutoff)}"] = value
+
+        return plot_dict, metric_dict
+
+    def _evaluate_supervised_classifier_per_cutoff_day(
+        self,
+        eval_predictions: dict[str, np.ndarray],
+    ) -> tuple[dict[str, go.Figure], dict[str, float]]:
+        """
+        Compute classification metrics for each cutoff day separately.
+        """
+        y_logits = eval_predictions["supervised_task_logits"]
+        y_true = eval_predictions["supervised_task_labels"][0]
+        cutoff_days = eval_predictions["cutoff_days"][0]
+
+        
 
     @staticmethod
     def _get_preds_from_best_threshold(

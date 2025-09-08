@@ -1,21 +1,23 @@
+import os
 import yaml
 import torch
 import argparse
 from datasets import DatasetDict
 from transformers import Trainer, TrainingArguments
+from transformers.integrations import WandbCallback
 
 from src.model.patient_token_embedder import (
     PatientTokenEmbeddingModel,
     PatientDataCollatorForLanguageModelling,
 )
 from src.model.model_utils import (
-    WarmupEarlyStoppingCallback,
+    EarlyStoppingCallbackWithWarmup,
+    SupervisedTaskWeightSchedulerCallback,
     WandbPlottingCallback,
     preprocess_logits_for_metrics,
 )
 from src.model.evaluate_models import CustomEmbeddingEvaluator
 from src.data.process.patient_dataset import load_hf_data_and_metadata
-
 import src.constants as constants
 csts = constants.ConstantsNamespace()
 
@@ -164,13 +166,33 @@ def get_trainer_callbacks(
     """
     Get the callbacks required by the trainer
     """
-    return [
+    # Initialize the list of callbacks
+    callbacks = []
+
+    # Add the supervised task weight scheduler if it's configured
+    early_stopping_warmup_steps = train_cfg["warmup_steps"]
+    if model_cfg.get("use_supervised_task") and "supervised_task_schedule" in model_cfg:
+        schedule_params = model_cfg["supervised_task_schedule"]
+        callbacks.append(SupervisedTaskWeightSchedulerCallback(**schedule_params))
+
+        # Use a later start for activating early stopping if we have a supervised schedule
+        early_stopping_warmup_steps = \
+            (schedule_params.get("start_steps", 0) + schedule_params.get("end_steps", 0)) / 2
+    
+    # Add the early stopping callback
+    callbacks.append(
         # EarlyStoppingCallback(early_stopping_patience=eval_cfg["early_stopping_patience"]),
-        WarmupEarlyStoppingCallback(
-            warmup_steps=train_cfg["warmup_steps"],
+        EarlyStoppingCallbackWithWarmup(
+            warmup_steps=early_stopping_warmup_steps,
             early_stopping_patience=eval_cfg["early_stopping_patience"]
-        ),
-    ]
+        )
+    )
+
+    # Add WandB callback if necessary, but last!
+    if train_cfg["report_to"] == "wandb":
+        callbacks.append(WandbCallback())
+
+    return callbacks
 
 
 def load_trainer_for_patient_token_embedding(
@@ -187,30 +209,36 @@ def load_trainer_for_patient_token_embedding(
     # In debug mode, evaluation comes earlier for quick assessment
     cfg_training_args: dict = run_cfg["TRAINING_ARGUMENTS"]
     if debug_flag:
-        cfg_training_args.update({"eval_strategy": "steps", "eval_steps": 10})
+        cfg_training_args.update(
+            {"eval_strategy": "steps", "eval_steps": 10, "report_to": "none"},
+        )
+
+    # Handle wandb specific settings
+    wandb_project_name = cfg_training_args.pop("wandb_project", None)
+    if run_cfg["TRAINING_ARGUMENTS"]["report_to"] == "wandb":
+        os.environ["WANDB_PROJECT"] = wandb_project_name
+        wandb_plotting_callback = WandbPlottingCallback()
+        trainer_callbacks.append(wandb_plotting_callback)  # sharing callback
+    else:
+        wandb_plotting_callback = None
 
     # Load training arguments
     eval_cfg: dict = run_cfg["EVALUATION_ARGUMENTS"]
     training_arguments = TrainingArguments(
         remove_unused_columns=False,
-        load_best_model_at_end=True,
-        # include_for_metrics=["loss"],
         metric_for_best_model=eval_cfg["metric_for_best_model"],
         greater_is_better=eval_cfg["greater_is_better"],
-        report_to="wandb" if not debug_flag else "none",
         **cfg_training_args,
     )
 
     # Define model evaluation pipeline
-    wandb_plotting_callback = WandbPlottingCallback()  # this callback has to be shared
     model_evaluator = CustomEmbeddingEvaluator(
         eval_dataset=dataset["validation"],
         embedding_mode="token",
-        wandb_plotting_callback=wandb_plotting_callback if not debug_flag else None,
+        wandb_plotting_callback=wandb_plotting_callback,
+        eval_label_key=run_cfg["MODEL_ARGUMENTS"]["supervised_task_key"],
         **eval_cfg,
     )
-    if not debug_flag:  # sharing this callback is important for global step tracking
-        trainer_callbacks.append(wandb_plotting_callback)
 
     # Define trainer object
     preprocess_fn = preprocess_logits_for_metrics if model.is_causal else None
