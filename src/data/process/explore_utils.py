@@ -124,7 +124,7 @@ def compute_infection_survival_analysis_results(
     # Merge infections with transplants, but keeping transplant patids outside constraint
     merged = pd.merge(transplants, infections, on="patid", how="left")
 
-    # Keeps only "clinically relevant" infections
+    # Keeps only "clinically significant" infections
     merged.loc[merged["inf"] != "Infection", "infdate"] = pd.NaT
 
     # Utility function to select correct infection events
@@ -156,7 +156,7 @@ def compute_infection_survival_analysis_results(
     pat_stop.loc[pat_stop["exit"] == "Death", "censdate"] = pat_stop["deathdate"]
     pat_stop.loc[pat_stop["exit"] == "Drop out-loss to follow up", "censdate"] = pat_stop["dropoutdate"]
 
-    # Fill-in a censoring time_to_inf value for all patients without a clinically relevant infection
+    # Fill-in a censoring time_to_inf value for all patients without a clinically significant infection
     merged_first_inf = pd.merge(merged_first_inf, pat_stop[["patid", "censdate"]], on="patid", how="left")
     censored_time_to_inf = merged_first_inf["censdate"] - merged_first_inf["tpxdate"]  # using death or dropout time
     default_time_to_inf = pd.to_datetime("2022-12-31") - merged_first_inf["tpxdate"]  # last possible assesment time

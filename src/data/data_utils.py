@@ -57,7 +57,7 @@ def get_date_by_key(
 ) -> pd.DataFrame:
     """ Get date(s) by key if in the valid range
     """
-    # Filter relevant patient data
+    # Select correct patient data
     dates = data.loc[data["patid"] == patient_ID, [value_key]]  # .copy()
     
     # Handle any nan-like entries with pd.NaT
@@ -85,7 +85,7 @@ def get_categorical_feature_by_key(
     if context_key is not None:
         retrieved_keys.append(context_key)
 
-    # Filter relevant patient data
+    # Select correct patient data
     feats = data.loc[data["patid"] == patient_ID, retrieved_keys]  # .copy()
 
     # Replace nan-like entries with pd.NA only if they are not in the valid list

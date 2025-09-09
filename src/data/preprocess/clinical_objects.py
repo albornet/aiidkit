@@ -356,15 +356,15 @@ class ViralInfection(Infection):
 
         self._pathogens = pathogens # List of Virus objects
         self._antiviral_treatment = antiviral_treatment
-        self._clinically_relevant = self.is_clinically_relevant()
+        self._clinically_significant = self.is_clinically_significant()
     
     @property
     def pathogens(self) -> list[Virus]:
         return self._pathogens
 
     @property
-    def clinically_relevant(self) -> bool:
-        return self._clinically_relevant
+    def clinically_significant(self) -> bool:
+        return self._clinically_significant
 
     def validate_clinical_infection_type(
         self,
@@ -376,7 +376,7 @@ class ViralInfection(Infection):
             InfectionType.VIRAL_SYNDROME, InfectionType.UNKNOWN,
         ]
     
-    def is_clinically_relevant(self) -> bool:
+    def is_clinically_significant(self) -> bool:
         if self.clinical_infection_type in [
             InfectionType.PROBABLE_DISEASE,
             InfectionType.PROVEN_DISEASE,
@@ -412,15 +412,15 @@ class BacterialInfection(Infection):
         
         self._pathogens = pathogens # List of Bacteria objects 
         self._antibacterial_treatment = antibacterial_treatment
-        self._clinically_relevant = self.is_clinically_relevant()
+        self._clinically_significant = self.is_clinically_significant()
     
     @property
     def pathogens(self) -> list[Bacteria]:
         return self._pathogens
 
     @property
-    def clinically_relevant(self) -> bool:
-        return self._clinically_relevant
+    def clinically_significant(self) -> bool:
+        return self._clinically_significant
 
     def validate_clinical_infection_type(
         self,
@@ -432,7 +432,7 @@ class BacterialInfection(Infection):
             InfectionType.UNKNOWN,
         ]
     
-    def is_clinically_relevant(self) -> bool:
+    def is_clinically_significant(self) -> bool:
         if self.clinical_infection_type in [InfectionType.PROVEN_DISEASE]:
             return True
         return False
@@ -460,18 +460,18 @@ class FungalInfection(Infection):
             donor_related_infection=donor_related_infection,
             immunosuppression_reduced=immunosuppression_reduced,
         )
-        
+
         self._pathogens = pathogens
         self._antifungal_treatment = antifungal_treatment
-        self._clinically_relevant = self.is_clinically_relevant()
+        self._clinically_significant = self.is_clinically_significant()
 
     @property
     def pathogens(self) -> list[Fungus]:
         return self._pathogens
 
     @property
-    def clinically_relevant(self) -> bool:
-        return self._clinically_relevant
+    def clinically_significant(self) -> bool:
+        return self._clinically_significant
 
     def validate_clinical_infection_type(
         self,
@@ -483,7 +483,7 @@ class FungalInfection(Infection):
             InfectionType.UNKNOWN,
         ]
     
-    def is_clinically_relevant(self) -> bool:
+    def is_clinically_significant(self) -> bool:
 
         # Special case for colonizations in fungi
         if self.clinical_infection_type in [InfectionType.COLONIZATION]\
@@ -529,15 +529,15 @@ class ParasiticInfection(Infection):
         
         self._pathogens = pathogens 
         self._antiparasitic_treatment = antiparasitic_treatment 
-        self._clinically_relevant = False
+        self._clinically_significant = False
 
     @property
     def pathogens(self) -> list[Parasite]:
         return self._pathogens
 
     @property
-    def clinically_relevant(self) -> bool:
-        return self._clinically_relevant
+    def clinically_significant(self) -> bool:
+        return self._clinically_significant
 
     def validate_clinical_infection_type(
         self,

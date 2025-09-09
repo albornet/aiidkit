@@ -10,7 +10,6 @@ from src.data.preprocess.organ_base_data import pool_organ_base_data
 from src.data.preprocess.patient_infectious_disease_data import pool_patient_infection_data
 from src.data.process.patient_dataset import build_huggingface_patient_dataset
 from src.data.process.infection_task import create_infection_datasets
-        
 from src.data.process.explore_utils import (
     generate_sex_distribution_plot,
     generate_age_distribution_plot,

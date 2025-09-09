@@ -72,35 +72,35 @@ def get_early_allograft_dysfunction(patient_ID: int, data: pd.DataFrame) -> pd.D
     dgf_data = dgf_data.drop_duplicates()
 
     valid_dgf_categories = ["No", "DGF", "PNF"]
-    relevant_data = dgf_data[dgf_data["dgf"].isin(valid_dgf_categories)]
+    valid_data = dgf_data[dgf_data["dgf"].isin(valid_dgf_categories)]
 
-    if relevant_data.empty:
+    if valid_data.empty:
         return pd.DataFrame()
 
-    relevant_data = relevant_data.astype(object)
-    relevant_data = relevant_data.rename(
+    valid_data = valid_data.astype(object)
+    valid_data = valid_data.rename(
         columns={"dgf": "attribute", "dgfduration": "value", "tpxdate": "time"},
     )
-    relevant_data.loc[relevant_data["attribute"] == "PNF", "value"] = "Yes"
-    relevant_data.loc[relevant_data["attribute"] == "DGF", "attribute"] = "DGF [days]"
+    valid_data.loc[valid_data["attribute"] == "PNF", "value"] = "Yes"
+    valid_data.loc[valid_data["attribute"] == "DGF", "attribute"] = "DGF [days]"
 
     # Compute rows representing the absence of occurrence of DGF / PNF
     absence_rows = []
-    for time in relevant_data["time"].unique():
-        rows = relevant_data.loc[relevant_data["time"] == time]
+    for time in valid_data["time"].unique():
+        rows = valid_data.loc[valid_data["time"] == time]
         if "DGF [days?]" not in rows["attribute"].values:
             absence_rows.append({"time": time, "attribute": "DGF", "value": "No"})
         if "PNF" not in rows["attribute"].values:
             absence_rows.append({"time": time, "attribute": "PNF", "value": "No"})
-    
+
     # Add computed absence rows
     if absence_rows:
-        relevant_data = pd.concat([relevant_data, pd.DataFrame(absence_rows)], ignore_index=True)
-    
-    # Filter out the "No" attribute rows, which were there only for construction
-    relevant_data = relevant_data[relevant_data["attribute"] != "No"]
+        valid_data = pd.concat([valid_data, pd.DataFrame(absence_rows)], ignore_index=True)
 
-    return relevant_data
+    # Filter out the "No" attribute rows, which were there only for construction
+    valid_data = valid_data[valid_data["attribute"] != "No"]
+
+    return valid_data
 
 def get_reason_for_graft_loss(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     """ Graft loss is any event that leads to the removal of the transplanted organ,

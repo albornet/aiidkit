@@ -95,7 +95,7 @@ def get_donor_type(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
     return dontype.rename(columns={"dontype": "Donor type"})
 
 def get_donor_cause_of_death(patient_ID: int, data: pd.DataFrame) -> pd.DataFrame:
-    # INFO: "Not applicable" is clinically relevant, because it means the donor is alive
+    # INFO: "Not applicable" is relevant clinically, because it means the donor is alive
     valid_categories = [
         "CHE", "ANX", "CTR", "CDI", "SUI", "CTU",
         "Other", "Unknown", "Not applicable",

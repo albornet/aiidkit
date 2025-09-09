@@ -141,7 +141,7 @@ def build_huggingface_patient_dataset(
     if vocabs is not None:
         pd.to_pickle(vocabs, os.path.join(metadata_dir, "vocabs.pkl"))
     print("Huggingface dataset created and saved to disk")
-    
+
 
 def build_patient_sample(patient_csv_path: str) -> dict[str, np.ndarray|list|str]:
     """
@@ -210,6 +210,7 @@ def format_patient_dataset(
         columns=[
             "entity_id", "attribute_id", "value_id", "days_since_tpx",
             "entity", "attribute", "value", "value_binned", "time",
+            "infection_events", "patient_csv_path",
         ],
     )
 
@@ -307,16 +308,18 @@ def get_all_infection_events(
     patient_df: pd.DataFrame,
 ) -> dict[str, list]:
     """
-    Extract all clinically relevant infection events from a patient
+    Extract all clinically significant infection events from a patient
+    TODO: MAKE THE CHECK MORE ROBUST TO CODE CHANGE:
+          FOR NOW, IT RELIES ON FUNCTION SIGNATURE!!
     """
-    clinically_relevant_inf_events = patient_df.loc[
+    clinically_significant_inf_events = patient_df.loc[
         patient_df["entity"].str.contains("infection", case=False)
-        & (patient_df["attribute"] == "Clinically relevant")
+        & (patient_df["attribute"] == "Clinically significant")
         & (patient_df["value"] == "True")
     ]
     return {
-        "infection_time": clinically_relevant_inf_events["days_since_tpx"].tolist(),
-        "infection_type": clinically_relevant_inf_events["entity"].tolist(),
+        "infection_time": clinically_significant_inf_events["days_since_tpx"].tolist(),
+        "infection_type": clinically_significant_inf_events["entity"].tolist(),
     }
 
 
