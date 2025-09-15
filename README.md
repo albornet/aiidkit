@@ -28,15 +28,15 @@ The project follows a clear, step-by-step workflow:
 1.  **Clone the repository:**
 
     ```bash
-    git clone <your-repository-url>
-    cd <your-project-directory>
+    git clone https://github.com/albornet/aiidkit
+    cd aiidkit
     ```
 
 2.  **Install dependencies:**
-    This project uses `uv` for efficient package and virtual environment management.
+    For example, you can use `uv` for efficient package and virtual environment management.
 
     ```bash
-    # Download and install uv, an efficient package manager
+    # Download and install uv
     wget -qO- https://astral.sh/uv/install.sh | sh
     # Create and activate a local virtual environment
     uv venv && source .venv/bin/activate
