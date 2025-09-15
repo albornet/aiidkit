@@ -137,6 +137,17 @@ def create_patient_record(
         patient_df.to_csv(save_path, index=False)
 
 
+def print_index_range(df, field, with_date=True):
+    """
+    Utils function to explore indexed data fields
+    """
+    indexed_fields = [c for c in df.columns if field + "_" in c]
+    print(indexed_fields)
+    print(f"Num indices for {field}: {len(indexed_fields)}")
+    if with_date:
+        print_index_range(df, field + "date", with_date=False)
+
+
 def exploration_fn(data_dict: pd.DataFrame):
     """ Explore the raw data file
     """
