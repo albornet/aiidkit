@@ -1,27 +1,25 @@
 # Patient sequence modeling project
 
-This project aims to process raw patient electronic health records (EHR) and train a transformer-based model to learn meaningful embeddings from patient sequences. The ultimate goal is to use these embeddings for downstream predictive tasks, such as forecasting post-transplant infections.
-
-The pipeline is structured into several key stages: data preprocessing, model pre-training, and hyperparameter optimization.
+This project aims to process raw patient electronic health records (EHR) about kidney transplant recipeients, and train transformer-based models to learn meaningful embeddings from patient sequences. The ultimate goal is to use these embeddings for downstream predictive tasks, such as forecasting post-transplant infections, or for clinical interpretability. The pipeline will only work if you have been granted access to the AIIDKIT data (and put the raw data file in the `data/raw` directory).
 
 ## 📋 Table of contents
 
-  - [Project workflow](https://www.google.com/search?q=%23-project-workflow)
-  - [Setup](https://www.google.com/search?q=%23%EF%B8%8F-setup)
-  - [Usage](https://www.google.com/search?q=%23-usage)
-      - [Step 1: Create datasets](https://www.google.com/search?q=%23step-1-create-datasets)
-      - [Step 2: Pre-train the token embedding model](https://www.google.com/search?q=%23step-2-pre-train-the-token-embedding-model)
-      - [Step 3: Run hyperparameter optimization](https://www.google.com/search?q=%23step-3-run-hyperparameter-optimization)
-  - [Scripts overview](https://www.google.com/search?q=%23-scripts-overview)
-  - [Configuration](https://www.google.com/search?q=%23-configuration)
+  - [Project workflow](#-project-workflow)
+  - [Setup](#️-setup)
+  - [Usage](#-usage)
+      - [Step 1: Create datasets](#step-1-create-datasets)
+      - [Step 2: Pre-train the token embedding model](#step-2-pre-train-the-token-embedding-model)
+      - [Step 3: Run hyperparameter optimization](#step-3-run-hyperparameter-optimization)
+  - [Scripts overview](#-scripts-overview)
+  - [Configuration](#-configuration)
 
 ## 🚀 Project workflow
 
 The project follows a clear, step-by-step workflow:
 
-1.  **Data Preprocessing**: Raw patient data from a pickle file is processed into individual patient record CSVs. These are then aggregated into a structured [Hugging Face `datasets`](https://www.google.com/search?q=%5Bhttps://huggingface.co/docs/datasets/%5D\(https://huggingface.co/docs/datasets/\)) object.
+1.  **Data Preprocessing**: Raw patient data from a pickle file is processed into individual patient record CSVs. These are then aggregated into a structured HugginFace datasets object.
 2.  **Model Pre-training**: A custom `PatientTokenEmbeddingModel` (a transformer-based architecture) is pre-trained on the patient sequences using a Masked Language Modeling (MLM) objective. This step learns to understand the structure and patterns in the patient data.
-3.  **Hyperparameter Tuning**: [Optuna](https://optuna.org/) is used to systematically search for the best set of hyperparameters for the model architecture and training process, maximizing performance on a validation set. The `optuna_tuning.sh` script automates running experiments across different data slices and prediction horizons.
+3.  **Hyperparameter Tuning**: Optuna is used to systematically search for the best set of hyperparameters for the model architecture and training process, maximizing performance on a validation set. The `optuna_tuning.sh` script automates running experiments across different data slices and prediction horizons.
 
 ## ⚙️ Setup
 
