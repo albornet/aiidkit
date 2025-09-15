@@ -1,6 +1,8 @@
 # Patient sequence modeling project
 
-This project aims to process raw patient electronic health records (EHR) about kidney transplant recipeients, and train transformer-based models to learn meaningful embeddings from patient sequences. The ultimate goal is to use these embeddings for downstream predictive tasks, such as forecasting post-transplant infections, or for clinical interpretability. The pipeline will only work if you have been granted access to the AIIDKIT data (and put the raw data file in the `data/raw` directory).
+This project processes raw electronic health records (EHR) of kidney transplant recipients to train transformer-based models. The objective is to learn meaningful embeddings from patient sequences that can be used for downstream predictive tasks, such as forecasting post-transplant infections, and for clinical interpretability.
+
+Note: This pipeline requires access to the AIIDKIT dataset. You must place the raw data file in the data/raw directory before running the code.
 
 ## 📋 Table of contents
 
